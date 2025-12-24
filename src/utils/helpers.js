@@ -84,13 +84,13 @@ export const formatReps = (value) => {
   return `${value} reps`;
 };
 
-export const formatDistance = (meters) => {
-  if (!meters) return '-';
-  if (meters >= 1000) {
-    return `${formatNumber(meters / 1000, 2)} km`;
-  }
-  return `${formatNumber(meters)} m`;
-};
+//export const formatDistance = (meters) => {
+ // if (!meters) return '-';
+ // if (meters >= 1000) {
+ //   return `${formatNumber(meters / 1000, 2)} km`;
+ // }
+  //return `${formatNumber(meters)} m`;
+//};
 
 // ============ FORMATEO DE ANTROPOMETRÍA ============
 export const formatMeasurement = (value, unit = 'cm') => {
