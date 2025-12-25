@@ -1,49 +1,42 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { auth, db } from '../firebase';
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword,
-  signOut,
+  signOut, 
   onAuthStateChanged,
   sendPasswordResetEmail
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { auth, db } from '../firebase';
 
 const AuthContext = createContext();
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth debe usarse dentro de AuthProvider');
-  }
-  return context;
-};
+export const useAuth = () => useContext(AuthContext);
 
-// Roles del sistema
-export const ROLES = {
-  SYSADMIN: 'sysadmin',
-  ADMIN: 'admin',
-  COACH: 'coach',
-  ATHLETE: 'athlete'
-};
-
-// Email del sysadmin
+// Email del Sysadmin
 const SYSADMIN_EMAIL = 'crespo.gonzalo9@gmail.com';
+
+// Jerarquía de roles
+const ROLE_HIERARCHY = {
+  sysadmin: 4,
+  admin: 3,
+  profesor: 2,
+  alumno: 1
+};
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         setUser(firebaseUser);
-        // Obtener datos adicionales del usuario
+        // Obtener datos del usuario de Firestore
         const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
         if (userDoc.exists()) {
-          setUserData(userDoc.data());
+          setUserData({ id: userDoc.id, ...userDoc.data() });
         }
       } else {
         setUser(null);
@@ -57,62 +50,51 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password) => {
     try {
-      setError(null);
       const result = await signInWithEmailAndPassword(auth, email, password);
       const userDoc = await getDoc(doc(db, 'users', result.user.uid));
       if (userDoc.exists()) {
-        setUserData(userDoc.data());
+        setUserData({ id: userDoc.id, ...userDoc.data() });
       }
       return { success: true };
-    } catch (err) {
-      const errorMessage = getAuthErrorMessage(err.code);
-      setError(errorMessage);
-      return { success: false, error: errorMessage };
+    } catch (error) {
+      console.error('Login error:', error);
+      let message = 'Error al iniciar sesión';
+      if (error.code === 'auth/user-not-found') message = 'Usuario no encontrado';
+      if (error.code === 'auth/wrong-password') message = 'Contraseña incorrecta';
+      if (error.code === 'auth/invalid-credential') message = 'Credenciales inválidas';
+      return { success: false, error: message };
     }
   };
 
-  const register = async (email, password, name, gymId = null) => {
+  const register = async (email, password, name, phone = '') => {
     try {
-      setError(null);
       const result = await createUserWithEmailAndPassword(auth, email, password);
       
-      // Determinar el rol
-      let role = ROLES.ATHLETE;
-      if (email === SYSADMIN_EMAIL) {
-        role = ROLES.SYSADMIN;
-      }
-
-      // Crear documento del usuario
+      // Determinar rol inicial
+      const role = email.toLowerCase() === SYSADMIN_EMAIL.toLowerCase() ? 'sysadmin' : 'alumno';
+      
+      // Crear documento de usuario
       const newUserData = {
-        uid: result.user.uid,
-        email,
+        email: email.toLowerCase(),
         name,
+        phone,
         role,
-        gymId,
-        photoURL: null,
-        phone: null,
-        birthDate: null,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        gymId: null, // Se asigna cuando un admin lo agrega a un gimnasio
         isActive: true,
-        // Datos específicos de atleta
-        ...(role === ROLES.ATHLETE && {
-          subscriptionStatus: 'pending',
-          subscriptionEndDate: null,
-          personalRecords: {},
-          anthropometry: [],
-          classesAttended: 0
-        })
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
       };
 
       await setDoc(doc(db, 'users', result.user.uid), newUserData);
-      setUserData(newUserData);
+      setUserData({ id: result.user.uid, ...newUserData });
       
       return { success: true };
-    } catch (err) {
-      const errorMessage = getAuthErrorMessage(err.code);
-      setError(errorMessage);
-      return { success: false, error: errorMessage };
+    } catch (error) {
+      console.error('Register error:', error);
+      let message = 'Error al registrar';
+      if (error.code === 'auth/email-already-in-use') message = 'El email ya está registrado';
+      if (error.code === 'auth/weak-password') message = 'La contraseña es muy débil';
+      return { success: false, error: message };
     }
   };
 
@@ -122,57 +104,77 @@ export const AuthProvider = ({ children }) => {
       setUser(null);
       setUserData(null);
       return { success: true };
-    } catch (err) {
-      return { success: false, error: err.message };
+    } catch (error) {
+      return { success: false, error: error.message };
     }
   };
 
   const resetPassword = async (email) => {
     try {
-      setError(null);
       await sendPasswordResetEmail(auth, email);
       return { success: true };
-    } catch (err) {
-      const errorMessage = getAuthErrorMessage(err.code);
-      setError(errorMessage);
-      return { success: false, error: errorMessage };
+    } catch (error) {
+      return { success: false, error: 'Error al enviar email de recuperación' };
     }
   };
 
-  // Verificar permisos
+  // Verificar si tiene un rol específico o superior
   const hasRole = (requiredRole) => {
-    if (!userData) return false;
-    
-    const roleHierarchy = {
-      [ROLES.SYSADMIN]: 4,
-      [ROLES.ADMIN]: 3,
-      [ROLES.COACH]: 2,
-      [ROLES.ATHLETE]: 1
-    };
-
-    return roleHierarchy[userData.role] >= roleHierarchy[requiredRole];
+    if (!userData?.role) return false;
+    return ROLE_HIERARCHY[userData.role] >= ROLE_HIERARCHY[requiredRole];
   };
 
-  const isSysadmin = () => userData?.role === ROLES.SYSADMIN;
-  const isAdmin = () => hasRole(ROLES.ADMIN);
-  const isCoach = () => hasRole(ROLES.COACH);
-  const isAthlete = () => userData?.role === ROLES.ATHLETE;
+  // Verificar rol exacto
+  const isRole = (role) => userData?.role === role;
+
+  // Helpers de rol
+  const isSysadmin = () => isRole('sysadmin');
+  const isAdmin = () => isRole('admin') || isRole('sysadmin');
+  const isProfesor = () => isRole('profesor');
+  const isAlumno = () => isRole('alumno');
+
+  // Puede gestionar gimnasios (solo sysadmin)
+  const canManageGyms = () => isSysadmin();
+  
+  // Puede asignar admins (solo sysadmin)
+  const canAssignAdmin = () => isSysadmin();
+  
+  // Puede gestionar profesores (admin o sysadmin)
+  const canManageProfesores = () => hasRole('admin');
+  
+  // Puede gestionar alumnos (admin, profesor)
+  const canManageAlumnos = () => hasRole('profesor');
+  
+  // Puede crear rutinas/WODs
+  const canCreateRoutines = () => hasRole('profesor');
+  
+  // Puede validar rankings
+  const canValidateRankings = () => hasRole('profesor');
+  
+  // Puede crear rankings (solo admin)
+  const canCreateRankings = () => hasRole('admin');
 
   const value = {
     user,
     userData,
     loading,
-    error,
     login,
     register,
     logout,
     resetPassword,
     hasRole,
+    isRole,
     isSysadmin,
     isAdmin,
-    isCoach,
-    isAthlete,
-    ROLES
+    isProfesor,
+    isAlumno,
+    canManageGyms,
+    canAssignAdmin,
+    canManageProfesores,
+    canManageAlumnos,
+    canCreateRoutines,
+    canValidateRankings,
+    canCreateRankings
   };
 
   return (
@@ -181,21 +183,3 @@ export const AuthProvider = ({ children }) => {
     </AuthContext.Provider>
   );
 };
-
-// Helper para mensajes de error
-const getAuthErrorMessage = (code) => {
-  const errors = {
-    'auth/email-already-in-use': 'Este email ya está registrado',
-    'auth/invalid-email': 'Email inválido',
-    'auth/operation-not-allowed': 'Operación no permitida',
-    'auth/weak-password': 'La contraseña debe tener al menos 6 caracteres',
-    'auth/user-disabled': 'Usuario deshabilitado',
-    'auth/user-not-found': 'Usuario no encontrado',
-    'auth/wrong-password': 'Contraseña incorrecta',
-    'auth/too-many-requests': 'Demasiados intentos. Intenta más tarde',
-    'auth/invalid-credential': 'Credenciales inválidas'
-  };
-  return errors[code] || 'Error de autenticación';
-};
-
-export default AuthContext;

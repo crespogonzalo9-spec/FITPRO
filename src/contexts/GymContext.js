@@ -1,87 +1,65 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { doc, getDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
+import { doc, getDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
 import { useAuth } from './AuthContext';
 
 const GymContext = createContext();
 
-export const useGym = () => {
-  const context = useContext(GymContext);
-  if (!context) {
-    throw new Error('useGym debe usarse dentro de GymProvider');
-  }
-  return context;
-};
+export const useGym = () => useContext(GymContext);
 
 export const GymProvider = ({ children }) => {
   const { userData, isSysadmin } = useAuth();
   const [currentGym, setCurrentGym] = useState(null);
-  const [gyms, setGyms] = useState([]);
+  const [gyms, setGyms] = useState([]); // Para sysadmin que ve todos
   const [loading, setLoading] = useState(true);
 
-  // Cargar gimnasio actual
   useEffect(() => {
     if (!userData) {
       setCurrentGym(null);
+      setGyms([]);
       setLoading(false);
       return;
     }
 
-    const loadGym = async () => {
-      try {
-        if (userData.gymId) {
-          const gymDoc = await getDoc(doc(db, 'gyms', userData.gymId));
-          if (gymDoc.exists()) {
-            setCurrentGym({ id: gymDoc.id, ...gymDoc.data() });
-          }
+    // Sysadmin puede ver todos los gimnasios
+    if (isSysadmin()) {
+      const q = query(collection(db, 'gyms'), where('isActive', '==', true));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const gymList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        setGyms(gymList);
+        // Seleccionar el primero si no hay ninguno seleccionado
+        if (!currentGym && gymList.length > 0) {
+          setCurrentGym(gymList[0]);
         }
-      } catch (error) {
-        console.error('Error loading gym:', error);
-      } finally {
         setLoading(false);
-      }
-    };
+      });
+      return () => unsubscribe();
+    }
 
-    loadGym();
+    // Otros usuarios ven solo su gimnasio asignado
+    if (userData.gymId) {
+      const fetchGym = async () => {
+        const gymDoc = await getDoc(doc(db, 'gyms', userData.gymId));
+        if (gymDoc.exists()) {
+          setCurrentGym({ id: gymDoc.id, ...gymDoc.data() });
+        }
+        setLoading(false);
+      };
+      fetchGym();
+    } else {
+      setLoading(false);
+    }
   }, [userData]);
 
-  // Cargar todos los gimnasios (solo para sysadmin)
-  useEffect(() => {
-    if (!isSysadmin()) {
-      setGyms([]);
-      return;
-    }
-
-    const q = query(collection(db, 'gyms'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const gymsList = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
-      setGyms(gymsList);
-    });
-
-    return () => unsubscribe();
-  }, [isSysadmin]);
-
-  const switchGym = async (gymId) => {
-    try {
-      const gymDoc = await getDoc(doc(db, 'gyms', gymId));
-      if (gymDoc.exists()) {
-        setCurrentGym({ id: gymDoc.id, ...gymDoc.data() });
-        return { success: true };
-      }
-      return { success: false, error: 'Gimnasio no encontrado' };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
+  const selectGym = (gym) => {
+    setCurrentGym(gym);
   };
 
   const value = {
     currentGym,
     gyms,
     loading,
-    switchGym
+    selectGym
   };
 
   return (
@@ -90,5 +68,3 @@ export const GymProvider = ({ children }) => {
     </GymContext.Provider>
   );
 };
-
-export default GymContext;
