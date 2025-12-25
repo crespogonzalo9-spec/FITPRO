@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Users, MoreVertical, Edit, Shield, Building2 } from 'lucide-react';
-import { Button, Card, Modal, Input, Select, SearchInput, EmptyState, LoadingState, Badge, Avatar, Dropdown, DropdownItem } from '../Common';
+import { Button, Card, Modal, Input, Select, SearchInput, EmptyState, LoadingState, Badge, Avatar, Dropdown, DropdownItem } from '../components/Common';
 import { useToast } from '../contexts/ToastContext';
 import { db } from '../firebase';
 import { collection, query, onSnapshot, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
