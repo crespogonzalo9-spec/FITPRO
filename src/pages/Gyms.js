@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Building2, MoreVertical, Edit, Trash2, Users, MapPin } from 'lucide-react';
-import { Button, Card, Modal, Input, Textarea, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Dropdown, DropdownItem } from '../Common';
+import { Button, Card, Modal, Input, Textarea, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Dropdown, DropdownItem } from '../components/Common';
 import { useToast } from '../contexts/ToastContext';
 import { db } from '../firebase';
 import { collection, query, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, where, getDocs } from 'firebase/firestore';
