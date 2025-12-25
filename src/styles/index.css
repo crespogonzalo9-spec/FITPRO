@@ -2,11 +2,46 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --color-primary: #10B981;
+  --color-primary-dark: #059669;
+  --color-primary-light: #34D399;
+}
+
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
+
+/* Modo oscuro (default) */
+.dark body {
+  background-color: #0F172A;
+  color: #F8FAFC;
+}
+
+/* Modo claro */
+.light body {
+  background-color: #F8FAFC;
+  color: #1E293B;
+}
+
+.light .bg-slate-900 { background-color: #F1F5F9; }
+.light .bg-slate-800 { background-color: #E2E8F0; }
+.light .bg-slate-800\/50 { background-color: rgba(226, 232, 240, 0.5); }
+.light .bg-gray-800 { background-color: #E2E8F0; }
+.light .bg-gray-800\/50 { background-color: rgba(226, 232, 240, 0.5); }
+.light .bg-gray-700 { background-color: #CBD5E1; }
+.light .bg-gray-900 { background-color: #F8FAFC; }
+.light .border-gray-700 { border-color: #CBD5E1; }
+.light .border-gray-700\/50 { border-color: rgba(203, 213, 225, 0.5); }
+.light .border-gray-800 { border-color: #E2E8F0; }
+.light .text-white { color: #1E293B; }
+.light .text-gray-300 { color: #475569; }
+.light .text-gray-400 { color: #64748B; }
+.light .text-gray-500 { color: #94A3B8; }
+.light .text-gray-600 { color: #CBD5E1; }
+.light .placeholder-gray-500::placeholder { color: #94A3B8; }
 
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;

@@ -7,7 +7,7 @@ import {
   onAuthStateChanged,
   sendPasswordResetEmail
 } from 'firebase/auth';
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
 const AuthContext = createContext();
 
@@ -66,7 +66,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const register = async (email, password, name, phone = '') => {
+  const register = async (email, password, name, phone = '', gymId = null) => {
     try {
       const result = await createUserWithEmailAndPassword(auth, email, password);
       
@@ -79,8 +79,9 @@ export const AuthProvider = ({ children }) => {
         name,
         phone,
         role,
-        gymId: null, // Se asigna cuando un admin lo agrega a un gimnasio
+        gymId: role === 'sysadmin' ? null : gymId,
         isActive: true,
+        subscriptionStatus: 'pending',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
@@ -95,6 +96,18 @@ export const AuthProvider = ({ children }) => {
       if (error.code === 'auth/email-already-in-use') message = 'El email ya está registrado';
       if (error.code === 'auth/weak-password') message = 'La contraseña es muy débil';
       return { success: false, error: message };
+    }
+  };
+
+  const updateUserGym = async (userId, gymId) => {
+    try {
+      await updateDoc(doc(db, 'users', userId), { gymId, updatedAt: serverTimestamp() });
+      if (userData?.id === userId) {
+        setUserData(prev => ({ ...prev, gymId }));
+      }
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
     }
   };
 
@@ -162,6 +175,7 @@ export const AuthProvider = ({ children }) => {
     register,
     logout,
     resetPassword,
+    updateUserGym,
     hasRole,
     isRole,
     isSysadmin,

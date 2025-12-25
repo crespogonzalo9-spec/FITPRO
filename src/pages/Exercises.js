@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Dumbbell, MoreVertical, Edit, Trash2, Play } from 'lucide-react';
-import { Button, Card, Modal, Input, Select, Textarea, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Dropdown, DropdownItem } from '../components/Common';
-import { useAuth } from '../contexts/AuthContext';
-import { useGym } from '../contexts/GymContext';
-import { useToast } from '../contexts/ToastContext';
+import { Button, Card, Modal, Input, Select, Textarea, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Dropdown, DropdownItem } from '../Common';
+import { useAuth } from '../../contexts/AuthContext';
+import { useGym } from '../../contexts/GymContext';
+import { useToast } from '../../contexts/ToastContext';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { EXERCISE_TYPES, MUSCLE_GROUPS, MEASUREMENT_UNITS } from '../utils/constants';
+import { EXERCISE_TYPES, MUSCLE_GROUPS, MEASUREMENT_UNITS } from '../../utils/constants';
 
 const Exercises = () => {
   const { isAdmin } = useAuth();

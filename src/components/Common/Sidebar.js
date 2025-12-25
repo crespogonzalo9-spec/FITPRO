@@ -3,7 +3,8 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, Calendar, Dumbbell, ClipboardList,
   Settings, LogOut, Building2, UserCheck, Flame, Trophy,
-  TrendingUp, CheckCircle, CheckSquare, User, Menu, X, ChevronDown
+  TrendingUp, CheckCircle, CheckSquare, User, Menu, X, ChevronDown,
+  CalendarDays, Megaphone, Link
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useGym } from '../../contexts/GymContext';
@@ -14,7 +15,7 @@ import { getRoleName, getRoleColor } from '../../utils/helpers';
 const iconMap = {
   LayoutDashboard, Users, Calendar, Dumbbell, ClipboardList,
   Settings, Building2, UserCheck, Flame, Trophy, TrendingUp,
-  CheckCircle, CheckSquare, User
+  CheckCircle, CheckSquare, User, CalendarDays, Megaphone, Link
 };
 
 const Sidebar = ({ isOpen, onClose }) => {

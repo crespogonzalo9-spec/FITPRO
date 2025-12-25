@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, TrendingUp, Check, X, Clock, Trophy, Filter } from 'lucide-react';
-import { Button, Card, Modal, Input, Select, SearchInput, EmptyState, LoadingState, Badge, Avatar, Tabs } from '../components/Common';
-import { useAuth } from '../contexts/AuthContext';
-import { useGym } from '../contexts/GymContext';
-import { useToast } from '../contexts/ToastContext';
+import { Button, Card, Modal, Input, Select, SearchInput, EmptyState, LoadingState, Badge, Avatar, Tabs } from '../Common';
+import { useAuth } from '../../contexts/AuthContext';
+import { useGym } from '../../contexts/GymContext';
+import { useToast } from '../../contexts/ToastContext';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
-import { PR_STATUS } from '../utils/constants';
-import { getPRStatusColor, getPRStatusName, formatDate, formatTimeValue } from '../utils/helpers';
+import { PR_STATUS } from '../../utils/constants';
+import { getPRStatusColor, getPRStatusName, formatDate, formatTimeValue } from '../../utils/helpers';
 
 const PRs = () => {
   const { userData, canValidateRankings, isAlumno } = useAuth();
