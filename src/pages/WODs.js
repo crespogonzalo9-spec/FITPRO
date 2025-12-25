@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Flame, MoreVertical, Edit, Trash2, Users, User, Calendar, Clock } from 'lucide-react';
 import { Button, Card, Modal, Input, Select, Textarea, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Dropdown, DropdownItem, Checkbox } from '../Common';
-import { useAuth } from '../../contexts/AuthContext';
-import { useGym } from '../../contexts/GymContext';
-import { useToast } from '../../contexts/ToastContext';
+import { useAuth } from '../contexts/AuthContext';
+import { useGym } from '../contexts/GymContext';
+import { useToast } from '../contexts/ToastContext';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { WOD_TYPES, ASSIGNMENT_TYPES, BENCHMARK_WODS } from '../../utils/constants';
-import { formatDate } from '../../utils/helpers';
+import { WOD_TYPES, ASSIGNMENT_TYPES, BENCHMARK_WODS } from '../utils/constants';
+import { formatDate } from '../utils/helpers';
 
 const WODs = () => {
   const { canCreateRoutines } = useAuth();
