@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, Users, Check, X } from 'lucide-react';
-import { Card, Button, Badge, LoadingState, EmptyState, Modal } from '../Common';
+import { Card, Button, Badge, LoadingState, EmptyState, Modal } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
