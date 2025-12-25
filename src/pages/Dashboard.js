@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Users, Calendar, TrendingUp, Trophy, Clock, CheckCircle, Dumbbell, Flame, Building2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
-import { Card, StatCard, LoadingState, Badge, Avatar, EmptyState } from '../Common';
+import { Card, StatCard, LoadingState, Badge, Avatar, EmptyState } from '../components/Common';
 import { db } from '../firebase';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import { getRoleName } from '../utils/helpers';
