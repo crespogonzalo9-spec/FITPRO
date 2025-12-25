@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Users, MoreVertical, Edit, Trash2, Mail, Phone } from 'lucide-react';
-import { Button, Card, Modal, Input, Select, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Avatar, Dropdown, DropdownItem } from '../Common';
-import { useGym } from '../../contexts/GymContext';
-import { useToast } from '../../contexts/ToastContext';
+import { Button, Card, Modal, Input, Select, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Avatar, Dropdown, DropdownItem } from '../components/Common';
+import { useGym } from '../contexts/GymContext';
+import { useToast } from '../contexts/ToastContext';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { SUBSCRIPTION_STATUS } from '../../utils/constants';
-import { getSubscriptionStatusColor, getSubscriptionStatusName, formatDate } from '../../utils/helpers';
+import { SUBSCRIPTION_STATUS } from '../utils/constants';
+import { getSubscriptionStatusColor, getSubscriptionStatusName, formatDate } from '../utils/helpers';
 
 const Members = () => {
   const { currentGym } = useGym();

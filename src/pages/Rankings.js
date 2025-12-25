@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trophy, Crown, Medal, Award, MoreVertical, Edit, Trash2, Filter } from 'lucide-react';
-import { Button, Card, Modal, Input, Select, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Avatar, Dropdown, DropdownItem } from '../Common';
-import { useAuth } from '../../contexts/AuthContext';
-import { useGym } from '../../contexts/GymContext';
-import { useToast } from '../../contexts/ToastContext';
+import { Button, Card, Modal, Input, Select, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Avatar, Dropdown, DropdownItem } from '../components/Common';
+import { useAuth } from '../contexts/AuthContext';
+import { useGym } from '../contexts/GymContext';
+import { useToast } from '../contexts/ToastContext';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, getDocs, orderBy, limit } from 'firebase/firestore';
-import { RANKING_TYPES } from '../../utils/constants';
-import { formatDate, formatTimeValue } from '../../utils/helpers';
+import { RANKING_TYPES } from '../utils/constants';
+import { formatDate, formatTimeValue } from '../utils/helpers';
 
 const Rankings = () => {
   const { canCreateRankings } = useAuth();

@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, ClipboardList, MoreVertical, Edit, Trash2, Users, User, Calendar } from 'lucide-react';
-import { Button, Card, Modal, Input, Select, Textarea, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Dropdown, DropdownItem, Checkbox } from '../Common';
-import { useAuth } from '../../contexts/AuthContext';
-import { useGym } from '../../contexts/GymContext';
-import { useToast } from '../../contexts/ToastContext';
+import { Button, Card, Modal, Input, Select, Textarea, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Dropdown, DropdownItem, Checkbox } from '../components/Common';
+import { useAuth } from '../contexts/AuthContext';
+import { useGym } from '../contexts/GymContext';
+import { useToast } from '../contexts/ToastContext';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { ASSIGNMENT_TYPES } from '../../utils/constants';
-import { formatDate } from '../../utils/helpers';
+import { ASSIGNMENT_TYPES } from '../utils/constants';
+import { formatDate } from '../utils/helpers';
 
 const Routines = () => {
   const { canCreateRoutines } = useAuth();
