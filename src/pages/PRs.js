@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, TrendingUp, Check, X, Clock, Trophy, Filter } from 'lucide-react';
-import { Button, Card, Modal, Input, Select, SearchInput, EmptyState, LoadingState, Badge, Avatar, Tabs } from '../Common';
+import { Button, Card, Modal, Input, Select, SearchInput, EmptyState, LoadingState, Badge, Avatar, Tabs } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
