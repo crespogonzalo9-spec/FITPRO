@@ -3,7 +3,7 @@ import { Users, Calendar, TrendingUp, Trophy, Clock, CheckCircle, Dumbbell, Flam
 import { useAuth } from '../../contexts/AuthContext';
 import { useGym } from '../../contexts/GymContext';
 import { Card, StatCard, LoadingState, Badge, Avatar, EmptyState } from '../Common';
-import { db } from '../../firebase';
+import { db } from '../firebase';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import { getRoleName } from '../../utils/helpers';
 

@@ -4,7 +4,7 @@ import { Button, Card, Modal, Input, Select, SearchInput, EmptyState, LoadingSta
 import { useAuth } from '../../contexts/AuthContext';
 import { useGym } from '../../contexts/GymContext';
 import { useToast } from '../../contexts/ToastContext';
-import { db } from '../../firebase';
+import { db } from '../firebase';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, getDocs, orderBy, limit } from 'firebase/firestore';
 import { RANKING_TYPES } from '../../utils/constants';
 import { formatDate, formatTimeValue } from '../../utils/helpers';

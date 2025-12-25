@@ -4,7 +4,7 @@ import { Button, Card, Modal, Input, Select, EmptyState, LoadingState, ConfirmDi
 import { useAuth } from '../../contexts/AuthContext';
 import { useGym } from '../../contexts/GymContext';
 import { useToast } from '../../contexts/ToastContext';
-import { db } from '../../firebase';
+import { db } from '../firebase';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, getDocs } from 'firebase/firestore';
 import { DAYS_OF_WEEK } from '../../utils/constants';
 

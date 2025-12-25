@@ -4,7 +4,7 @@ import { Button, Card, Modal, Input, Select, SearchInput, EmptyState, LoadingSta
 import { useAuth } from '../../contexts/AuthContext';
 import { useGym } from '../../contexts/GymContext';
 import { useToast } from '../../contexts/ToastContext';
-import { db } from '../../firebase';
+import { db } from '../firebase';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { PR_STATUS } from '../../utils/constants';
 import { getPRStatusColor, getPRStatusName, formatDate, formatTimeValue } from '../../utils/helpers';
