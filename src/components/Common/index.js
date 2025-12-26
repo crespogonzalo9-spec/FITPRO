@@ -149,12 +149,12 @@ export const Tabs = ({ tabs, activeTab, onChange }) => (
 );
 
 // ConfirmDialog
-export const ConfirmDialog = ({ isOpen, onClose, onConfirm, title, message, confirmText = 'Confirmar', cancelText = 'Cancelar' }) => (
+export const ConfirmDialog = ({ isOpen, onClose, onConfirm, title, message, confirmText = 'Confirmar', cancelText = 'Cancelar', confirmVariant = 'danger' }) => (
   <Modal isOpen={isOpen} onClose={onClose} title={title} size="sm">
     <p className="text-gray-300 mb-6">{message}</p>
     <div className="flex gap-3">
       <Button variant="secondary" onClick={onClose} className="flex-1">{cancelText}</Button>
-      <Button variant="danger" onClick={onConfirm} className="flex-1">{confirmText}</Button>
+      <Button variant={confirmVariant} onClick={onConfirm} className="flex-1">{confirmText}</Button>
     </div>
   </Modal>
 );

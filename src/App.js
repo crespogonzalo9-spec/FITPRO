@@ -12,6 +12,7 @@ import Register from './components/Auth/Register';
 // Layout
 import Layout from './components/Common/Layout';
 import PWAInstallPrompt from './components/Common/PWAInstallPrompt';
+import BlockedScreen from './components/Common/BlockedScreen';
 
 // Pages
 import Dashboard from './pages/Dashboard';
@@ -31,14 +32,20 @@ import News from './pages/News';
 import Invites from './pages/Invites';
 import Settings from './pages/Settings';
 
+const LoadingSpinner = () => (
+  <div className="min-h-screen flex items-center justify-center bg-slate-900">
+    <div className="w-8 h-8 border-2 border-gray-700 border-t-emerald-500 rounded-full animate-spin" />
+  </div>
+);
+
 const ProtectedRoute = ({ children, allowedRoles }) => {
-  const { user, userData, loading } = useAuth();
+  const { user, userData, loading, isBlocked } = useAuth();
   
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center bg-slate-900"><div className="w-8 h-8 border-2 border-gray-700 border-t-emerald-500 rounded-full animate-spin" /></div>;
-  }
-  
+  if (loading) return <LoadingSpinner />;
   if (!user) return <Navigate to="/login" replace />;
+  
+  // Si está bloqueado, mostrar pantalla de bloqueo
+  if (isBlocked()) return <BlockedScreen />;
   
   // Verificar roles múltiples
   if (allowedRoles && userData?.roles) {
@@ -53,12 +60,8 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
 
 const PublicRoute = ({ children }) => {
   const { user, loading } = useAuth();
-  const location = useLocation();
   
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center bg-slate-900"><div className="w-8 h-8 border-2 border-gray-700 border-t-emerald-500 rounded-full animate-spin" /></div>;
-  }
-  
+  if (loading) return <LoadingSpinner />;
   if (user) return <Navigate to="/dashboard" replace />;
   
   return children;
@@ -69,9 +72,7 @@ const RootRedirect = () => {
   const { user, loading } = useAuth();
   const location = useLocation();
   
-  if (loading) {
-    return <div className="min-h-screen flex items-center justify-center bg-slate-900"><div className="w-8 h-8 border-2 border-gray-700 border-t-emerald-500 rounded-full animate-spin" /></div>;
-  }
+  if (loading) return <LoadingSpinner />;
   
   // Si hay código de invitación, ir a registro
   const params = new URLSearchParams(location.search);
@@ -80,9 +81,7 @@ const RootRedirect = () => {
   }
   
   // Si está logueado, ir al dashboard
-  if (user) {
-    return <Navigate to="/dashboard" replace />;
-  }
+  if (user) return <Navigate to="/dashboard" replace />;
   
   // Si no está logueado, ir a login
   return <Navigate to="/login" replace />;

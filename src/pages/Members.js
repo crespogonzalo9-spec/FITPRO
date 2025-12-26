@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, MoreVertical, Edit, Mail, Phone, Shield, UserPlus, UserMinus } from 'lucide-react';
+import { Users, MoreVertical, Phone, Shield, ShieldX, ShieldCheck } from 'lucide-react';
 import { Button, Card, Modal, Select, SearchInput, EmptyState, LoadingState, Badge, Avatar, Dropdown, DropdownItem, ConfirmDialog } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
@@ -9,7 +9,7 @@ import { collection, query, where, onSnapshot, updateDoc, doc, serverTimestamp }
 import { getRoleName, formatDate } from '../utils/helpers';
 
 const Members = () => {
-  const { userData, isAdmin, canAssignRole, canRemoveRole } = useAuth();
+  const { userData, isAdmin, canAssignRole, canRemoveRole, canBlockUsers } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
   
@@ -17,11 +17,14 @@ const Members = () => {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterRole, setFilterRole] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
   
   const [showModal, setShowModal] = useState(false);
+  const [showBlockConfirm, setShowBlockConfirm] = useState(false);
   const [selected, setSelected] = useState(null);
 
   const canEdit = isAdmin();
+  const canBlock = canBlockUsers();
 
   useEffect(() => {
     if (!currentGym?.id) { setLoading(false); return; }
@@ -41,6 +44,14 @@ const Members = () => {
     if (filterRole !== 'all') {
       filtered = filtered.filter(m => m.roles?.includes(filterRole));
     }
+
+    if (filterStatus !== 'all') {
+      if (filterStatus === 'blocked') {
+        filtered = filtered.filter(m => m.isBlocked === true);
+      } else if (filterStatus === 'active') {
+        filtered = filtered.filter(m => m.isBlocked !== true);
+      }
+    }
     
     if (search) {
       const s = search.toLowerCase();
@@ -50,9 +61,13 @@ const Members = () => {
       );
     }
     
-    // Ordenar por roles
+    // Ordenar: bloqueados al final, luego por roles
     const roleOrder = { sysadmin: 0, admin: 1, profesor: 2, alumno: 3 };
     filtered.sort((a, b) => {
+      // Bloqueados al final
+      if (a.isBlocked && !b.isBlocked) return 1;
+      if (!a.isBlocked && b.isBlocked) return -1;
+      
       const aTop = Math.min(...(a.roles || ['alumno']).map(r => roleOrder[r] ?? 4));
       const bTop = Math.min(...(b.roles || ['alumno']).map(r => roleOrder[r] ?? 4));
       return aTop - bTop;
@@ -78,6 +93,23 @@ const Members = () => {
     }
   };
 
+  const handleBlockToggle = async () => {
+    try {
+      const newBlockedStatus = !selected.isBlocked;
+      await updateDoc(doc(db, 'users', selected.id), {
+        isBlocked: newBlockedStatus,
+        blockedAt: newBlockedStatus ? serverTimestamp() : null,
+        blockedBy: newBlockedStatus ? userData.id : null,
+        updatedAt: serverTimestamp()
+      });
+      success(newBlockedStatus ? 'Usuario bloqueado' : 'Usuario desbloqueado');
+      setShowBlockConfirm(false);
+      setSelected(null);
+    } catch (err) {
+      showError('Error al cambiar estado');
+    }
+  };
+
   const getRoleBadges = (roles) => {
     if (!roles || roles.length === 0) return <Badge className="bg-gray-500/20 text-gray-400">Alumno</Badge>;
     
@@ -100,6 +132,7 @@ const Members = () => {
   };
 
   const filteredMembers = getFilteredMembers();
+  const blockedCount = members.filter(m => m.isBlocked).length;
 
   if (loading) return <LoadingState />;
   if (!currentGym) return <EmptyState icon={Users} title="Sin gimnasio" />;
@@ -109,7 +142,10 @@ const Members = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold">Miembros</h1>
-          <p className="text-gray-400">{filteredMembers.length} miembros en {currentGym.name}</p>
+          <p className="text-gray-400">
+            {filteredMembers.length} miembros en {currentGym.name}
+            {blockedCount > 0 && <span className="text-red-400 ml-2">({blockedCount} bloqueados)</span>}
+          </p>
         </div>
       </div>
 
@@ -124,7 +160,17 @@ const Members = () => {
             { value: 'profesor', label: '👨‍🏫 Profesores' },
             { value: 'alumno', label: '👤 Alumnos' }
           ]}
-          className="w-full sm:w-48"
+          className="w-full sm:w-40"
+        />
+        <Select
+          value={filterStatus}
+          onChange={e => setFilterStatus(e.target.value)}
+          options={[
+            { value: 'all', label: 'Todos' },
+            { value: 'active', label: '✓ Activos' },
+            { value: 'blocked', label: '🚫 Bloqueados' }
+          ]}
+          className="w-full sm:w-40"
         />
       </div>
 
@@ -133,23 +179,49 @@ const Members = () => {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {filteredMembers.map(member => (
-            <Card key={member.id}>
+            <Card key={member.id} className={member.isBlocked ? 'border-red-500/30 bg-red-500/5' : ''}>
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
-                  <Avatar name={member.name} size="lg" />
+                  <div className="relative">
+                    <Avatar name={member.name} size="lg" />
+                    {member.isBlocked && (
+                      <div className="absolute -bottom-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
+                        <ShieldX size={12} className="text-white" />
+                      </div>
+                    )}
+                  </div>
                   <div>
-                    <h3 className="font-semibold">{member.name}</h3>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold">{member.name}</h3>
+                      {member.id === userData.id && <Badge className="bg-blue-500/20 text-blue-400">Vos</Badge>}
+                    </div>
                     <p className="text-sm text-gray-400">{member.email}</p>
                     <div className="mt-1">
                       {getRoleBadges(member.roles)}
                     </div>
+                    {member.isBlocked && (
+                      <Badge className="mt-1 bg-red-500/20 text-red-400">🚫 Bloqueado</Badge>
+                    )}
                   </div>
                 </div>
-                {canEdit && member.id !== userData.id && !member.roles?.includes('sysadmin') && (
+                
+                {/* Menú de acciones */}
+                {(canEdit || canBlock) && member.id !== userData.id && !member.roles?.includes('sysadmin') && (
                   <Dropdown trigger={<button className="p-2 hover:bg-gray-700 rounded-lg"><MoreVertical size={18} /></button>}>
-                    <DropdownItem icon={Shield} onClick={() => { setSelected(member); setShowModal(true); }}>
-                      Gestionar roles
-                    </DropdownItem>
+                    {canEdit && !member.roles?.includes('admin') && (
+                      <DropdownItem icon={Shield} onClick={() => { setSelected(member); setShowModal(true); }}>
+                        Gestionar roles
+                      </DropdownItem>
+                    )}
+                    {canBlock && !member.roles?.includes('admin') && (
+                      <DropdownItem 
+                        icon={member.isBlocked ? ShieldCheck : ShieldX} 
+                        danger={!member.isBlocked}
+                        onClick={() => { setSelected(member); setShowBlockConfirm(true); }}
+                      >
+                        {member.isBlocked ? 'Desbloquear' : 'Bloquear'}
+                      </DropdownItem>
+                    )}
                   </Dropdown>
                 )}
               </div>
@@ -165,6 +237,7 @@ const Members = () => {
         </div>
       )}
 
+      {/* Modal de roles */}
       <RolesModal 
         isOpen={showModal} 
         onClose={() => { setShowModal(false); setSelected(null); }} 
@@ -172,6 +245,20 @@ const Members = () => {
         member={selected}
         canAssignRole={canAssignRole}
         canRemoveRole={canRemoveRole}
+      />
+
+      {/* Confirmación de bloqueo */}
+      <ConfirmDialog 
+        isOpen={showBlockConfirm} 
+        onClose={() => { setShowBlockConfirm(false); setSelected(null); }} 
+        onConfirm={handleBlockToggle} 
+        title={selected?.isBlocked ? 'Desbloquear Usuario' : 'Bloquear Usuario'}
+        message={selected?.isBlocked 
+          ? `¿Desbloquear a "${selected?.name}"? Podrá volver a acceder a la app.`
+          : `¿Bloquear a "${selected?.name}"? No podrá acceder a la app hasta que lo desbloquees.`
+        }
+        confirmText={selected?.isBlocked ? 'Desbloquear' : 'Bloquear'}
+        confirmVariant={selected?.isBlocked ? 'primary' : 'danger'}
       />
     </div>
   );

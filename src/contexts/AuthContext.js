@@ -35,6 +35,17 @@ export const AuthProvider = ({ children }) => {
           }
           if (roles.length === 0) roles = ['alumno'];
           setUserData({ id: userDoc.id, ...data, roles });
+        } else {
+          // Usuario existe en Auth pero no en Firestore (fue eliminado)
+          // Crear documento básico para que pueda usar la app
+          setUserData({ 
+            id: firebaseUser.uid, 
+            email: firebaseUser.email,
+            name: firebaseUser.displayName || 'Usuario',
+            roles: ['alumno'],
+            gymId: null,
+            needsReregistration: true // Marcar que necesita completar datos
+          });
         }
       } else {
         setUser(null);
@@ -49,12 +60,22 @@ export const AuthProvider = ({ children }) => {
     try {
       const result = await signInWithEmailAndPassword(auth, email, password);
       const userDoc = await getDoc(doc(db, 'users', result.user.uid));
+      
       if (userDoc.exists()) {
         const data = userDoc.data();
         let roles = data.roles || [];
         if (data.role && !roles.includes(data.role)) roles = [data.role, ...roles];
         if (roles.length === 0) roles = ['alumno'];
         setUserData({ id: userDoc.id, ...data, roles });
+      } else {
+        // Usuario en Auth pero no en Firestore - necesita re-registro
+        setUserData({ 
+          id: result.user.uid, 
+          email: result.user.email,
+          roles: ['alumno'],
+          gymId: null,
+          needsReregistration: true
+        });
       }
       return { success: true };
     } catch (error) {
@@ -69,7 +90,32 @@ export const AuthProvider = ({ children }) => {
   // Registro libre (puede elegir gimnasio o sin gimnasio)
   const register = async (email, password, name, phone = '', gymId = null) => {
     try {
-      const result = await createUserWithEmailAndPassword(auth, email, password);
+      let userId;
+      
+      try {
+        // Intentar crear nuevo usuario
+        const result = await createUserWithEmailAndPassword(auth, email, password);
+        userId = result.user.uid;
+      } catch (authError) {
+        if (authError.code === 'auth/email-already-in-use') {
+          // El email ya existe en Auth - intentar login y recrear documento
+          try {
+            const loginResult = await signInWithEmailAndPassword(auth, email, password);
+            userId = loginResult.user.uid;
+            
+            // Verificar si ya tiene documento
+            const existingDoc = await getDoc(doc(db, 'users', userId));
+            if (existingDoc.exists() && !existingDoc.data().needsReregistration) {
+              return { success: false, error: 'Ya tenés una cuenta. Iniciá sesión.' };
+            }
+            // Si no tiene documento o necesita re-registro, continuar
+          } catch (loginError) {
+            return { success: false, error: 'El email ya está registrado con otra contraseña' };
+          }
+        } else {
+          throw authError;
+        }
+      }
       
       // Sysadmin automático para el email especial
       const isSysadminEmail = email.toLowerCase() === SYSADMIN_EMAIL.toLowerCase();
@@ -82,15 +128,17 @@ export const AuthProvider = ({ children }) => {
         roles,
         gymId: isSysadminEmail ? null : (gymId || null),
         isActive: true,
+        isBlocked: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
 
-      await setDoc(doc(db, 'users', result.user.uid), newUserData);
-      setUserData({ id: result.user.uid, ...newUserData });
+      await setDoc(doc(db, 'users', userId), newUserData);
+      setUserData({ id: userId, ...newUserData });
       
       return { success: true };
     } catch (error) {
+      console.error('[Auth] Register error:', error);
       let message = 'Error al registrar';
       if (error.code === 'auth/email-already-in-use') message = 'El email ya está registrado';
       if (error.code === 'auth/weak-password') message = 'La contraseña es muy débil';
@@ -101,7 +149,23 @@ export const AuthProvider = ({ children }) => {
   // Registro con invitación (asigna gimnasio y roles automáticamente)
   const registerWithInvite = async (email, password, name, phone, gymId, inviteRoles = ['alumno']) => {
     try {
-      const result = await createUserWithEmailAndPassword(auth, email, password);
+      let userId;
+      
+      try {
+        const result = await createUserWithEmailAndPassword(auth, email, password);
+        userId = result.user.uid;
+      } catch (authError) {
+        if (authError.code === 'auth/email-already-in-use') {
+          try {
+            const loginResult = await signInWithEmailAndPassword(auth, email, password);
+            userId = loginResult.user.uid;
+          } catch (loginError) {
+            return { success: false, error: 'El email ya está registrado con otra contraseña' };
+          }
+        } else {
+          throw authError;
+        }
+      }
       
       // Asegurar que siempre tenga alumno
       const roles = inviteRoles.includes('alumno') ? inviteRoles : [...inviteRoles, 'alumno'];
@@ -113,19 +177,47 @@ export const AuthProvider = ({ children }) => {
         roles,
         gymId,
         isActive: true,
+        isBlocked: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
 
-      await setDoc(doc(db, 'users', result.user.uid), newUserData);
-      setUserData({ id: result.user.uid, ...newUserData });
+      await setDoc(doc(db, 'users', userId), newUserData);
+      setUserData({ id: userId, ...newUserData });
       
       return { success: true };
     } catch (error) {
+      console.error('[Auth] RegisterWithInvite error:', error);
       let message = 'Error al registrar';
       if (error.code === 'auth/email-already-in-use') message = 'El email ya está registrado';
       if (error.code === 'auth/weak-password') message = 'La contraseña es muy débil';
       return { success: false, error: message };
+    }
+  };
+
+  // Completar re-registro (para usuarios que fueron eliminados)
+  const completeReregistration = async (name, phone = '', gymId = null) => {
+    if (!user) return { success: false, error: 'No hay sesión activa' };
+    
+    try {
+      const newUserData = {
+        email: user.email.toLowerCase(),
+        name,
+        phone,
+        roles: ['alumno'],
+        gymId: gymId || null,
+        isActive: true,
+        isBlocked: false,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+
+      await setDoc(doc(db, 'users', user.uid), newUserData);
+      setUserData({ id: user.uid, ...newUserData });
+      
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
     }
   };
 
@@ -191,6 +283,9 @@ export const AuthProvider = ({ children }) => {
     return userData.roles.length === 1 && userData.roles[0] === 'alumno';
   };
 
+  // Verificar si está bloqueado
+  const isBlocked = () => userData?.isBlocked === true;
+
   // =============================================
   // PERMISOS DE ASIGNACIÓN DE ROLES
   // =============================================
@@ -206,6 +301,9 @@ export const AuthProvider = ({ children }) => {
     if (isAdmin()) return ['admin', 'profesor'].includes(targetRole);
     return false;
   };
+
+  // Puede bloquear usuarios (admin y sysadmin)
+  const canBlockUsers = () => isAdmin();
 
   // =============================================
   // PERMISOS DE FUNCIONALIDADES
@@ -232,6 +330,7 @@ export const AuthProvider = ({ children }) => {
     login,
     register,
     registerWithInvite,
+    completeReregistration,
     logout,
     resetPassword,
     updateUserGym,
@@ -242,8 +341,10 @@ export const AuthProvider = ({ children }) => {
     isProfesor,
     isAlumno,
     isOnlyAlumno,
+    isBlocked,
     canAssignRole,
     canRemoveRole,
+    canBlockUsers,
     canManageGyms,
     canManageUsers,
     canManageClasses,
