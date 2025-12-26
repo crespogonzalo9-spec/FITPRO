@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { doc, getDoc, collection, query, where, onSnapshot } from 'firebase/firestore';
+import { doc, collection, onSnapshot } from 'firebase/firestore';
 import { useAuth } from './AuthContext';
 
 const GymContext = createContext();
@@ -10,34 +10,31 @@ export const useGym = () => useContext(GymContext);
 export const GymProvider = ({ children }) => {
   const { userData, isSysadmin } = useAuth();
   const [currentGym, setCurrentGymState] = useState(null);
-  const [gyms, setGyms] = useState([]);
+  const [availableGyms, setAvailableGyms] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!userData) {
       setCurrentGymState(null);
-      setGyms([]);
+      setAvailableGyms([]);
       setLoading(false);
       return;
     }
 
     // Sysadmin puede ver todos los gimnasios
-    if (isSysadmin()) {
-      const q = query(collection(db, 'gyms'));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const gymList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setGyms(gymList);
+    if (isSysadmin && isSysadmin()) {
+      const unsubscribe = onSnapshot(collection(db, 'gyms'), (snapshot) => {
+        const gymList = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        setAvailableGyms(gymList);
         
-        // Recuperar gimnasio guardado en localStorage o seleccionar el primero
+        // Recuperar gimnasio guardado en localStorage
         const savedGymId = localStorage.getItem('fitpro-selected-gym');
         const savedGym = gymList.find(g => g.id === savedGymId);
         
         if (savedGym) {
           setCurrentGymState(savedGym);
-        } else if (!currentGym && gymList.length > 0) {
-          setCurrentGymState(gymList[0]);
-          localStorage.setItem('fitpro-selected-gym', gymList[0].id);
         }
+        // NO seleccionar automáticamente - dejar que el sysadmin elija
         setLoading(false);
       });
       return () => unsubscribe();
@@ -47,28 +44,34 @@ export const GymProvider = ({ children }) => {
     if (userData.gymId) {
       const unsubscribe = onSnapshot(doc(db, 'gyms', userData.gymId), (docSnap) => {
         if (docSnap.exists()) {
-          setCurrentGymState({ id: docSnap.id, ...docSnap.data() });
+          const gym = { id: docSnap.id, ...docSnap.data() };
+          setCurrentGymState(gym);
+          setAvailableGyms([gym]);
         }
         setLoading(false);
       });
       return () => unsubscribe();
     } else {
+      // Usuario sin gimnasio
+      setCurrentGymState(null);
+      setAvailableGyms([]);
       setLoading(false);
     }
   }, [userData, isSysadmin]);
 
-  // Función para cambiar de gimnasio (solo sysadmin)
-  const setCurrentGym = (gym) => {
-    setCurrentGymState(gym);
-    if (gym?.id) {
-      localStorage.setItem('fitpro-selected-gym', gym.id);
+  // Función para seleccionar gimnasio (solo sysadmin)
+  const selectGym = (gymId) => {
+    const gym = availableGyms.find(g => g.id === gymId);
+    if (gym) {
+      setCurrentGymState(gym);
+      localStorage.setItem('fitpro-selected-gym', gymId);
     }
   };
 
   const value = {
     currentGym,
-    setCurrentGym,
-    gyms,
+    availableGyms,
+    selectGym,
     loading
   };
 
