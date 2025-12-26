@@ -1,108 +1,153 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, TrendingUp, Check, X, Clock, Trophy, Filter, MoreVertical, Edit, Trash2 } from 'lucide-react';
-import { Button, Card, Modal, Input, Select, SearchInput, EmptyState, LoadingState, Badge, Avatar, Tabs, Dropdown, DropdownItem, ConfirmDialog } from '../components/Common';
+import { Trophy, Plus, TrendingUp, Calendar, Edit, Trash2, MoreVertical, CheckCircle, Clock, AlertCircle, Filter } from 'lucide-react';
+import { Button, Card, Modal, Input, Textarea, Select, SearchInput, EmptyState, LoadingState, Badge, ConfirmDialog, Dropdown, DropdownItem, Avatar } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
 import { db } from '../firebase';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { PR_STATUS } from '../utils/constants';
-import { getPRStatusColor, getPRStatusName, formatDate, formatTimeValue } from '../utils/helpers';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
+import { formatDate } from '../utils/helpers';
+
+const MEASURE_LABELS = {
+  kg: 'kg',
+  reps: 'reps',
+  time: '',
+  distance: 'm',
+  calories: 'cal'
+};
 
 const PRs = () => {
-  const { userData, canValidateRankings, isAlumno } = useAuth();
+  const { userData, isProfesor, isSysadmin } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
   
   const [prs, setPrs] = useState([]);
   const [exercises, setExercises] = useState([]);
+  const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
-  const [activeTab, setActiveTab] = useState('all');
+  const [filterExercise, setFilterExercise] = useState('all');
+  const [viewMode, setViewMode] = useState('mine'); // 'mine' | 'all' | 'pending'
   
   const [showModal, setShowModal] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
   const [selected, setSelected] = useState(null);
+  const [editMode, setEditMode] = useState(false);
 
-  const canEdit = canValidateRankings();
+  const canValidate = isProfesor() || isSysadmin();
+  const canViewAll = isProfesor() || isSysadmin();
 
+  // Cargar ejercicios
   useEffect(() => {
-    if (!currentGym?.id) { setLoading(false); return; }
+    if (!currentGym?.id) return;
 
-    let prsQuery;
-    if (isAlumno()) {
-      prsQuery = query(collection(db, 'prs'), where('gymId', '==', currentGym.id), where('userId', '==', userData.id));
+    const q = query(collection(db, 'exercises'), where('gymId', '==', currentGym.id));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      items.sort((a, b) => a.name?.localeCompare(b.name));
+      setExercises(items);
+    });
+
+    return () => unsubscribe();
+  }, [currentGym]);
+
+  // Cargar miembros (para validadores)
+  useEffect(() => {
+    if (!currentGym?.id || !canViewAll) return;
+
+    const q = query(collection(db, 'users'), where('gymId', '==', currentGym.id));
+    const unsubscribe = onSnapshot(q, (snap) => {
+      setMembers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    return () => unsubscribe();
+  }, [currentGym, canViewAll]);
+
+  // Cargar PRs
+  useEffect(() => {
+    if (!currentGym?.id || !userData?.id) { setLoading(false); return; }
+
+    let q;
+    if (viewMode === 'mine') {
+      q = query(
+        collection(db, 'prs'), 
+        where('gymId', '==', currentGym.id),
+        where('userId', '==', userData.id)
+      );
+    } else if (viewMode === 'pending' && canValidate) {
+      q = query(
+        collection(db, 'prs'), 
+        where('gymId', '==', currentGym.id),
+        where('status', '==', 'pending')
+      );
+    } else if (canViewAll) {
+      q = query(collection(db, 'prs'), where('gymId', '==', currentGym.id));
     } else {
-      prsQuery = query(collection(db, 'prs'), where('gymId', '==', currentGym.id));
+      q = query(
+        collection(db, 'prs'), 
+        where('gymId', '==', currentGym.id),
+        where('userId', '==', userData.id)
+      );
     }
-
-    const unsubPrs = onSnapshot(prsQuery, (snap) => {
+    
+    const unsubscribe = onSnapshot(q, (snap) => {
       const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       items.sort((a, b) => {
-        const dateA = a.createdAt?.toDate?.() || new Date(0);
-        const dateB = b.createdAt?.toDate?.() || new Date(0);
+        const dateA = a.date?.toDate?.() || a.createdAt?.toDate?.() || new Date(0);
+        const dateB = b.date?.toDate?.() || b.createdAt?.toDate?.() || new Date(0);
         return dateB - dateA;
       });
       setPrs(items);
       setLoading(false);
     });
 
-    const exQuery = query(collection(db, 'exercises'), where('gymId', '==', currentGym.id));
-    const unsubEx = onSnapshot(exQuery, (snap) => setExercises(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-
-    return () => { unsubPrs(); unsubEx(); };
-  }, [currentGym, userData, isAlumno]);
-
-  const getFilteredPRs = () => {
-    let filtered = prs;
-    if (activeTab === 'mine') filtered = filtered.filter(p => p.userId === userData.id);
-    if (activeTab === 'pending') filtered = filtered.filter(p => p.status === 'pending');
-    if (filterStatus !== 'all') filtered = filtered.filter(p => p.status === filterStatus);
-    if (search) {
-      const s = search.toLowerCase();
-      filtered = filtered.filter(p => p.exerciseName?.toLowerCase().includes(s) || p.userName?.toLowerCase().includes(s));
-    }
-    return filtered;
-  };
+    return () => unsubscribe();
+  }, [currentGym, userData, viewMode, canViewAll, canValidate]);
 
   const handleSave = async (data) => {
     try {
       const exercise = exercises.find(e => e.id === data.exerciseId);
-      const prData = {
-        ...data,
-        exerciseName: exercise?.name || '',
-        unit: exercise?.unit || 'kg',
-        gymId: currentGym.id,
-        userId: userData.id,
-        userName: userData.name,
-        status: 'pending',
-        updatedAt: serverTimestamp()
-      };
-
-      if (selected?.id) {
-        await updateDoc(doc(db, 'prs', selected.id), prData);
+      
+      if (editMode && selected) {
+        await updateDoc(doc(db, 'prs', selected.id), {
+          ...data,
+          exerciseName: exercise?.name || 'Ejercicio',
+          measureType: exercise?.measureType || 'kg',
+          updatedAt: serverTimestamp()
+        });
         success('PR actualizado');
       } else {
-        await addDoc(collection(db, 'prs'), { ...prData, createdAt: serverTimestamp() });
-        success('PR registrado y pendiente de validación');
+        await addDoc(collection(db, 'prs'), {
+          ...data,
+          exerciseName: exercise?.name || 'Ejercicio',
+          measureType: exercise?.measureType || 'kg',
+          gymId: currentGym.id,
+          userId: userData.id,
+          userName: userData.name,
+          status: 'pending', // pending, validated, rejected
+          createdAt: serverTimestamp()
+        });
+        success('PR registrado! Pendiente de validación');
       }
       setShowModal(false);
       setSelected(null);
+      setEditMode(false);
     } catch (err) {
+      console.error('Error saving PR:', err);
       showError('Error al guardar');
     }
   };
 
-  const handleValidate = async (pr, newStatus) => {
+  const handleValidate = async (pr, status) => {
     try {
       await updateDoc(doc(db, 'prs', pr.id), {
-        status: newStatus,
+        status,
+        validatedAt: serverTimestamp(),
         validatedBy: userData.id,
-        validatedByName: userData.name,
-        validatedAt: serverTimestamp()
+        validatedByName: userData.name
       });
-      success(newStatus === 'validated' ? 'PR validado' : 'PR rechazado');
+      success(status === 'validated' ? 'PR validado!' : 'PR rechazado');
     } catch (err) {
       showError('Error al validar');
     }
@@ -119,116 +164,419 @@ const PRs = () => {
     }
   };
 
+  const openEdit = (pr) => {
+    setSelected(pr);
+    setEditMode(true);
+    setShowModal(true);
+  };
+
+  const openCreate = () => {
+    setSelected(null);
+    setEditMode(false);
+    setShowModal(true);
+  };
+
+  const formatValue = (pr) => {
+    if (pr.measureType === 'time') {
+      // Formato tiempo: mm:ss o hh:mm:ss
+      const totalSeconds = pr.value;
+      if (totalSeconds >= 3600) {
+        const hours = Math.floor(totalSeconds / 3600);
+        const mins = Math.floor((totalSeconds % 3600) / 60);
+        const secs = totalSeconds % 60;
+        return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+      }
+      const mins = Math.floor(totalSeconds / 60);
+      const secs = totalSeconds % 60;
+      return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${pr.value} ${MEASURE_LABELS[pr.measureType] || ''}`;
+  };
+
+  const getStatusBadge = (status) => {
+    switch (status) {
+      case 'validated':
+        return <Badge className="bg-green-500/20 text-green-400"><CheckCircle size={12} className="mr-1" /> Validado</Badge>;
+      case 'rejected':
+        return <Badge className="bg-red-500/20 text-red-400"><AlertCircle size={12} className="mr-1" /> Rechazado</Badge>;
+      default:
+        return <Badge className="bg-yellow-500/20 text-yellow-400"><Clock size={12} className="mr-1" /> Pendiente</Badge>;
+    }
+  };
+
+  const getFilteredPRs = () => {
+    let filtered = prs;
+    
+    if (filterStatus !== 'all') {
+      filtered = filtered.filter(pr => pr.status === filterStatus);
+    }
+    
+    if (filterExercise !== 'all') {
+      filtered = filtered.filter(pr => pr.exerciseId === filterExercise);
+    }
+    
+    if (search) {
+      const s = search.toLowerCase();
+      filtered = filtered.filter(pr => 
+        pr.exerciseName?.toLowerCase().includes(s) || 
+        pr.userName?.toLowerCase().includes(s) ||
+        pr.notes?.toLowerCase().includes(s)
+      );
+    }
+    
+    return filtered;
+  };
+
   const filteredPRs = getFilteredPRs();
-  const pendingCount = prs.filter(p => p.status === 'pending').length;
+  const pendingCount = prs.filter(pr => pr.status === 'pending').length;
 
   if (loading) return <LoadingState />;
-  if (!currentGym) return <EmptyState icon={TrendingUp} title="Sin gimnasio" />;
+  if (!currentGym) return <EmptyState icon={Trophy} title="Sin gimnasio" description="Seleccioná un gimnasio" />;
 
   return (
     <div className="space-y-6 animate-fadeIn">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Personal Records</h1>
-          <p className="text-gray-400">{filteredPRs.length} registros</p>
+          <h1 className="text-2xl font-bold">Marcas Personales</h1>
+          <p className="text-gray-400">
+            {viewMode === 'mine' ? 'Mis PRs' : viewMode === 'pending' ? 'Pendientes de validación' : 'Todos los PRs'}
+            {pendingCount > 0 && canValidate && viewMode !== 'pending' && (
+              <span className="ml-2 text-yellow-400">({pendingCount} pendientes)</span>
+            )}
+          </p>
         </div>
-        <Button icon={Plus} onClick={() => { setSelected(null); setShowModal(true); }}>Registrar PR</Button>
+        <div className="flex gap-2">
+          {canViewAll && (
+            <Select
+              value={viewMode}
+              onChange={e => setViewMode(e.target.value)}
+              options={[
+                { value: 'mine', label: '👤 Mis PRs' },
+                { value: 'all', label: '👥 Todos' },
+                { value: 'pending', label: `⏳ Pendientes ${pendingCount > 0 ? `(${pendingCount})` : ''}` }
+              ]}
+              className="w-44"
+            />
+          )}
+          <Button icon={Plus} onClick={openCreate}>
+            Registrar PR
+          </Button>
+        </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 overflow-x-auto pb-2">
-        <button onClick={() => setActiveTab('all')} className={`px-4 py-2 rounded-xl whitespace-nowrap transition-colors ${activeTab === 'all' ? 'bg-primary text-white' : 'bg-gray-800 hover:bg-gray-700'}`}>Todos</button>
-        <button onClick={() => setActiveTab('mine')} className={`px-4 py-2 rounded-xl whitespace-nowrap transition-colors ${activeTab === 'mine' ? 'bg-primary text-white' : 'bg-gray-800 hover:bg-gray-700'}`}>Mis PRs</button>
-        {canEdit && (
-          <button onClick={() => setActiveTab('pending')} className={`px-4 py-2 rounded-xl whitespace-nowrap transition-colors flex items-center gap-2 ${activeTab === 'pending' ? 'bg-primary text-white' : 'bg-gray-800 hover:bg-gray-700'}`}>
-            Pendientes
-            {pendingCount > 0 && <span className="bg-yellow-500 text-black text-xs px-2 py-0.5 rounded-full">{pendingCount}</span>}
-          </button>
-        )}
-      </div>
+      {/* Info si no hay ejercicios */}
+      {exercises.length === 0 && (
+        <Card className="bg-yellow-500/10 border-yellow-500/30">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="text-yellow-400 mt-1 flex-shrink-0" size={20} />
+            <div>
+              <p className="text-yellow-400 font-medium">No hay ejercicios cargados</p>
+              <p className="text-sm text-gray-400 mt-1">
+                Primero necesitás agregar ejercicios en la sección de Ejercicios para poder registrar PRs.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
 
+      {/* Filtros */}
       <div className="flex flex-col sm:flex-row gap-4">
-        <SearchInput value={search} onChange={setSearch} placeholder="Buscar ejercicio o usuario..." className="flex-1" />
-        <Select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} options={[{ value: 'all', label: 'Todos los estados' }, ...PR_STATUS.map(s => ({ value: s.id, label: s.name }))]} className="w-full sm:w-48" />
+        <SearchInput 
+          value={search} 
+          onChange={setSearch} 
+          placeholder="Buscar por ejercicio, persona o notas..." 
+          className="flex-1" 
+        />
+        <Select
+          value={filterExercise}
+          onChange={e => setFilterExercise(e.target.value)}
+          options={[
+            { value: 'all', label: 'Todos los ejercicios' },
+            ...exercises.map(e => ({ value: e.id, label: e.name }))
+          ]}
+          className="w-full sm:w-48"
+        />
+        <Select
+          value={filterStatus}
+          onChange={e => setFilterStatus(e.target.value)}
+          options={[
+            { value: 'all', label: 'Todos los estados' },
+            { value: 'validated', label: '✓ Validados' },
+            { value: 'pending', label: '⏳ Pendientes' },
+            { value: 'rejected', label: '✗ Rechazados' }
+          ]}
+          className="w-full sm:w-40"
+        />
       </div>
 
       {filteredPRs.length === 0 ? (
-        <EmptyState icon={TrendingUp} title="No hay PRs" description={activeTab === 'pending' ? 'No hay PRs pendientes de validar' : 'Registrá tu primera marca personal'} action={<Button icon={Plus} onClick={() => setShowModal(true)}>Registrar PR</Button>} />
+        <EmptyState 
+          icon={Trophy} 
+          title="No hay PRs" 
+          description={prs.length === 0 ? "Registrá tu primera marca personal!" : "No se encontraron PRs con esos filtros"}
+          action={exercises.length > 0 && prs.length === 0 && <Button icon={Plus} onClick={openCreate}>Registrar PR</Button>}
+        />
       ) : (
         <div className="space-y-3">
           {filteredPRs.map(pr => (
-            <Card key={pr.id} className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <Avatar name={pr.userName} size="md" />
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-semibold">{pr.exerciseName}</h3>
-                    <Badge className={getPRStatusColor(pr.status)}>{getPRStatusName(pr.status)}</Badge>
+            <Card key={pr.id} className={pr.status === 'rejected' ? 'opacity-60' : ''}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  {/* Avatar del usuario (solo si vemos todos) */}
+                  {viewMode !== 'mine' && (
+                    <Avatar name={pr.userName} size="md" />
+                  )}
+                  
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="font-semibold text-lg">{pr.exerciseName}</h3>
+                      {getStatusBadge(pr.status)}
+                    </div>
+                    
+                    {viewMode !== 'mine' && (
+                      <p className="text-sm text-gray-400">{pr.userName}</p>
+                    )}
+                    
+                    <div className="flex items-center gap-4 text-sm text-gray-400 mt-1">
+                      <span className="flex items-center gap-1">
+                        <Calendar size={14} />
+                        {formatDate(pr.date || pr.createdAt)}
+                      </span>
+                      {pr.notes && (
+                        <span className="text-gray-500 truncate max-w-[200px]">
+                          📝 {pr.notes}
+                        </span>
+                      )}
+                    </div>
+                    
+                    {pr.status === 'validated' && pr.validatedByName && (
+                      <p className="text-xs text-green-500/70 mt-1">
+                        Validado por {pr.validatedByName}
+                      </p>
+                    )}
                   </div>
-                  <p className="text-sm text-gray-400">{pr.userName} • {formatDate(pr.createdAt)}</p>
                 </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <div className="text-right">
-                  <p className="text-2xl font-bold">{formatTimeValue(pr.value, pr.unit)}</p>
-                  {pr.notes && <p className="text-xs text-gray-500">{pr.notes}</p>}
-                </div>
-                {canEdit && pr.status === 'pending' && (
+                
+                <div className="flex items-center gap-4">
+                  {/* Valor del PR */}
+                  <div className="text-right">
+                    <p className="text-2xl font-bold text-primary">{formatValue(pr)}</p>
+                    {pr.previousValue && (
+                      <p className="text-xs text-green-400">
+                        +{pr.value - pr.previousValue} {MEASURE_LABELS[pr.measureType]}
+                      </p>
+                    )}
+                  </div>
+                  
+                  {/* Acciones */}
                   <div className="flex gap-2">
-                    <button onClick={() => handleValidate(pr, 'validated')} className="p-2 bg-green-500/20 hover:bg-green-500/30 rounded-lg text-green-400"><Check size={18} /></button>
-                    <button onClick={() => handleValidate(pr, 'rejected')} className="p-2 bg-red-500/20 hover:bg-red-500/30 rounded-lg text-red-400"><X size={18} /></button>
+                    {/* Botones de validación */}
+                    {canValidate && pr.status === 'pending' && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleValidate(pr, 'validated')}
+                          className="text-green-400 hover:bg-green-500/20"
+                        >
+                          <CheckCircle size={18} />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleValidate(pr, 'rejected')}
+                          className="text-red-400 hover:bg-red-500/20"
+                        >
+                          <AlertCircle size={18} />
+                        </Button>
+                      </>
+                    )}
+                    
+                    {/* Menú para el dueño del PR */}
+                    {(pr.userId === userData.id || isSysadmin()) && (
+                      <Dropdown trigger={<button className="p-2 hover:bg-gray-700 rounded-lg"><MoreVertical size={18} /></button>}>
+                        <DropdownItem icon={Edit} onClick={() => openEdit(pr)}>Editar</DropdownItem>
+                        <DropdownItem icon={Trash2} danger onClick={() => { setSelected(pr); setShowDelete(true); }}>Eliminar</DropdownItem>
+                      </Dropdown>
+                    )}
                   </div>
-                )}
-                {(canEdit || pr.userId === userData.id) && (
-                  <Dropdown trigger={<button className="p-2 hover:bg-gray-700 rounded-lg"><MoreVertical size={18} /></button>}>
-                    <DropdownItem icon={Edit} onClick={() => { setSelected(pr); setShowModal(true); }}>Editar</DropdownItem>
-                    <DropdownItem icon={Trash2} danger onClick={() => { setSelected(pr); setShowDelete(true); }}>Eliminar</DropdownItem>
-                  </Dropdown>
-                )}
+                </div>
               </div>
             </Card>
           ))}
         </div>
       )}
 
-      <PRModal isOpen={showModal} onClose={() => { setShowModal(false); setSelected(null); }} onSave={handleSave} pr={selected} exercises={exercises} />
-      <ConfirmDialog isOpen={showDelete} onClose={() => setShowDelete(false)} onConfirm={handleDelete} title="Eliminar PR" message="¿Eliminar este registro?" confirmText="Eliminar" />
+      <PRModal 
+        isOpen={showModal} 
+        onClose={() => { setShowModal(false); setSelected(null); setEditMode(false); }} 
+        onSave={handleSave} 
+        pr={editMode ? selected : null}
+        exercises={exercises}
+      />
+
+      <ConfirmDialog 
+        isOpen={showDelete} 
+        onClose={() => setShowDelete(false)} 
+        onConfirm={handleDelete} 
+        title="Eliminar PR" 
+        message={`¿Eliminar este PR de ${selected?.exerciseName}?`}
+        confirmText="Eliminar" 
+      />
     </div>
   );
 };
 
 const PRModal = ({ isOpen, onClose, onSave, pr, exercises }) => {
-  const [form, setForm] = useState({ exerciseId: '', value: '', notes: '' });
+  const [form, setForm] = useState({
+    exerciseId: '',
+    value: '',
+    date: new Date().toISOString().split('T')[0],
+    notes: ''
+  });
   const [loading, setLoading] = useState(false);
+
+  const selectedExercise = exercises.find(e => e.id === form.exerciseId);
 
   useEffect(() => {
     if (pr) {
-      setForm({ exerciseId: pr.exerciseId || '', value: pr.value || '', notes: pr.notes || '' });
+      setForm({
+        exerciseId: pr.exerciseId || '',
+        value: pr.measureType === 'time' ? '' : pr.value?.toString() || '',
+        timeMinutes: pr.measureType === 'time' ? Math.floor(pr.value / 60) : 0,
+        timeSeconds: pr.measureType === 'time' ? pr.value % 60 : 0,
+        date: pr.date?.toDate?.().toISOString().split('T')[0] || new Date().toISOString().split('T')[0],
+        notes: pr.notes || ''
+      });
     } else {
-      setForm({ exerciseId: '', value: '', notes: '' });
+      setForm({
+        exerciseId: exercises[0]?.id || '',
+        value: '',
+        timeMinutes: 0,
+        timeSeconds: 0,
+        date: new Date().toISOString().split('T')[0],
+        notes: ''
+      });
     }
-  }, [pr, isOpen]);
+  }, [pr, isOpen, exercises]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!form.exerciseId || !form.value) return;
+    
+    let finalValue = parseFloat(form.value);
+    
+    // Si es tiempo, convertir minutos:segundos a segundos totales
+    if (selectedExercise?.measureType === 'time') {
+      finalValue = (parseInt(form.timeMinutes) || 0) * 60 + (parseInt(form.timeSeconds) || 0);
+    }
+    
+    if (!form.exerciseId || isNaN(finalValue) || finalValue <= 0) {
+      return;
+    }
+    
     setLoading(true);
-    await onSave(form);
+    await onSave({
+      exerciseId: form.exerciseId,
+      value: finalValue,
+      date: new Date(form.date),
+      notes: form.notes
+    });
     setLoading(false);
   };
 
-  const selectedExercise = exercises.find(e => e.id === form.exerciseId);
+  const getMeasureLabel = () => {
+    if (!selectedExercise) return 'Valor';
+    switch (selectedExercise.measureType) {
+      case 'kg': return 'Peso (kg)';
+      case 'reps': return 'Repeticiones';
+      case 'time': return 'Tiempo';
+      case 'distance': return 'Distancia (metros)';
+      case 'calories': return 'Calorías';
+      default: return 'Valor';
+    }
+  };
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={pr ? 'Editar PR' : 'Registrar PR'}>
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Select label="Ejercicio *" value={form.exerciseId} onChange={e => setForm({ ...form, exerciseId: e.target.value })} options={exercises.map(ex => ({ value: ex.id, label: ex.name }))} required />
-        <Input label={`Valor (${selectedExercise?.unit || 'kg'}) *`} type="number" step="0.1" value={form.value} onChange={e => setForm({ ...form, value: e.target.value })} placeholder="Ej: 100" required />
-        <Input label="Notas" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Ej: Sin cinturón" />
-        <div className="flex gap-3 pt-4">
-          <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancelar</Button>
-          <Button type="submit" loading={loading} className="flex-1">Guardar</Button>
-        </div>
+        {exercises.length === 0 ? (
+          <Card className="bg-yellow-500/10 border-yellow-500/30">
+            <p className="text-yellow-400 text-sm">
+              No hay ejercicios cargados. Primero agregá ejercicios desde la sección correspondiente.
+            </p>
+          </Card>
+        ) : (
+          <>
+            <Select 
+              label="Ejercicio *" 
+              value={form.exerciseId} 
+              onChange={e => setForm({ ...form, exerciseId: e.target.value })}
+              options={exercises.map(e => ({ 
+                value: e.id, 
+                label: `${e.name} (${e.measureType === 'kg' ? 'peso' : e.measureType === 'reps' ? 'reps' : e.measureType === 'time' ? 'tiempo' : e.measureType})` 
+              }))}
+            />
+
+            {selectedExercise?.measureType === 'time' ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">Tiempo *</label>
+                <div className="flex gap-2 items-center">
+                  <Input 
+                    type="number"
+                    value={form.timeMinutes} 
+                    onChange={e => setForm({ ...form, timeMinutes: e.target.value })} 
+                    placeholder="0"
+                    min="0"
+                    className="flex-1"
+                  />
+                  <span className="text-gray-400">min</span>
+                  <Input 
+                    type="number"
+                    value={form.timeSeconds} 
+                    onChange={e => setForm({ ...form, timeSeconds: e.target.value })} 
+                    placeholder="0"
+                    min="0"
+                    max="59"
+                    className="flex-1"
+                  />
+                  <span className="text-gray-400">seg</span>
+                </div>
+              </div>
+            ) : (
+              <Input 
+                label={`${getMeasureLabel()} *`}
+                type="number"
+                step={selectedExercise?.measureType === 'kg' ? '0.5' : '1'}
+                value={form.value} 
+                onChange={e => setForm({ ...form, value: e.target.value })} 
+                placeholder={selectedExercise?.measureType === 'kg' ? 'Ej: 100' : 'Ej: 10'}
+                required
+              />
+            )}
+
+            <Input 
+              label="Fecha" 
+              type="date"
+              value={form.date} 
+              onChange={e => setForm({ ...form, date: e.target.value })} 
+            />
+
+            <Textarea 
+              label="Notas (opcional)" 
+              value={form.notes} 
+              onChange={e => setForm({ ...form, notes: e.target.value })} 
+              placeholder="Ej: Sin cinturón, con pausa, primera vez..."
+              rows={2}
+            />
+
+            <div className="flex gap-3 pt-4">
+              <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancelar</Button>
+              <Button type="submit" loading={loading} className="flex-1" disabled={exercises.length === 0}>
+                {pr ? 'Guardar' : 'Registrar PR'}
+              </Button>
+            </div>
+          </>
+        )}
       </form>
     </Modal>
   );
