@@ -1,38 +1,60 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
-
-const pageTitles = {
-  '/dashboard': 'Dashboard',
-  '/gyms': 'Gimnasios',
-  '/users': 'Usuarios',
-  '/members': 'Alumnos',
-  '/profesores': 'Profesores',
-  '/classes': 'Clases',
-  '/exercises': 'Ejercicios',
-  '/routines': 'Rutinas',
-  '/wods': 'WODs',
-  '/rankings': 'Rankings',
-  '/prs': 'Marcas Personales',
-  '/settings': 'Configuración',
-  '/my-classes': 'Mis Clases',
-  '/my-routines': 'Mis Rutinas',
-  '/my-prs': 'Mis PRs',
-  '/schedule': 'Horarios',
-  '/profile': 'Mi Perfil'
-};
+import { useGym } from '../../contexts/GymContext';
+import { useTheme } from '../../contexts/ThemeContext';
 
 const Layout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
+  const { currentGym } = useGym();
+  const { setGymId } = useTheme();
+
+  // Sincronizar gymId con ThemeContext
+  useEffect(() => {
+    if (currentGym?.id) {
+      setGymId(currentGym.id);
+    }
+  }, [currentGym?.id, setGymId]);
+
+  const getPageTitle = () => {
+    const titles = {
+      '/dashboard': 'Dashboard',
+      '/gyms': 'Gimnasios',
+      '/users': 'Usuarios',
+      '/members': 'Alumnos',
+      '/profesores': 'Profesores',
+      '/classes': 'Clases',
+      '/exercises': 'Ejercicios',
+      '/routines': 'Rutinas',
+      '/wods': 'WODs',
+      '/rankings': 'Rankings',
+      '/prs': 'Marcas Personales',
+      '/schedule': 'Horarios',
+      '/my-classes': 'Mis Clases',
+      '/my-routines': 'Mis Rutinas',
+      '/my-prs': 'Mis PRs',
+      '/calendar': 'Calendario',
+      '/news': 'Novedades',
+      '/invites': 'Invitaciones',
+      '/profile': 'Mi Perfil',
+      '/settings': 'Configuración'
+    };
+    return titles[location.pathname] || 'FitPro';
+  };
 
   return (
-    <div className="min-h-screen bg-slate-900">
-      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+    <div className="min-h-screen transition-theme">
+      <Sidebar isOpen={sidebarOpen} setIsOpen={setSidebarOpen} />
+      
       <div className="lg:ml-64">
-        <Header onMenuClick={() => setSidebarOpen(true)} title={pageTitles[location.pathname] || 'FitPro'} />
-        <main className="p-4 md:p-6">
+        <Header 
+          title={getPageTitle()} 
+          onMenuClick={() => setSidebarOpen(true)} 
+        />
+        
+        <main className="p-4 lg:p-6">
           <Outlet />
         </main>
       </div>

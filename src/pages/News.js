@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Megaphone, MoreVertical, Edit, Trash2, Image, Send } from 'lucide-react';
-import { Button, Card, Modal, Input, Textarea, EmptyState, LoadingState, ConfirmDialog, Badge, Avatar, Dropdown, DropdownItem } from '../components/Common';
+import { Plus, Megaphone, MoreVertical, Edit, Trash2, Image as ImageIcon, Bell } from 'lucide-react';
+import { Button, Card, Modal, Input, Textarea, EmptyState, LoadingState, ConfirmDialog, Avatar, Dropdown, DropdownItem } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
@@ -19,6 +19,9 @@ const News = () => {
   const [showDelete, setShowDelete] = useState(false);
   const [selected, setSelected] = useState(null);
 
+  // Solo Admin puede publicar
+  const canPublish = isAdmin();
+
   useEffect(() => {
     if (!currentGym?.id) { setLoading(false); return; }
 
@@ -31,6 +34,9 @@ const News = () => {
     const unsubscribe = onSnapshot(q, (snap) => {
       setNews(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
+    }, (error) => {
+      console.error('Error loading news:', error);
+      setLoading(false);
     });
 
     return () => unsubscribe();
@@ -40,7 +46,6 @@ const News = () => {
     try {
       let imageUrl = data.imageUrl || null;
 
-      // Subir imagen si hay una nueva
       if (imageFile) {
         const imageRef = ref(storage, `news/${currentGym.id}/${Date.now()}_${imageFile.name}`);
         await uploadBytes(imageRef, imageFile);
@@ -48,7 +53,8 @@ const News = () => {
       }
 
       const newsData = {
-        ...data,
+        title: data.title,
+        body: data.body,
         imageUrl,
         gymId: currentGym.id,
         authorId: userData.id,
@@ -62,8 +68,8 @@ const News = () => {
         await addDoc(collection(db, 'news'), { ...newsData, createdAt: serverTimestamp() });
         success('Novedad publicada');
         
-        // Enviar notificación push (si está configurado)
-        sendPushNotification(data.title, data.body);
+        // Aquí se enviaría push notification (requiere Firebase Cloud Messaging configurado)
+        // sendPushToGymMembers(currentGym.id, data.title, data.body);
       }
 
       setShowModal(false);
@@ -72,16 +78,6 @@ const News = () => {
       console.error(err);
       showError('Error al guardar');
     }
-  };
-
-  const sendPushNotification = async (title, body) => {
-    // Aquí se integraría con Firebase Cloud Messaging
-    // Por ahora solo logueamos
-    console.log('Push notification:', { title, body });
-    
-    // Para implementar FCM:
-    // 1. Guardar tokens de dispositivos en Firestore cuando el usuario acepta notificaciones
-    // 2. Usar Cloud Functions para enviar notificaciones cuando se crea una novedad
   };
 
   const handleDelete = async () => {
@@ -105,24 +101,37 @@ const News = () => {
           <h1 className="text-2xl font-bold">Novedades</h1>
           <p className="text-gray-400">{news.length} publicaciones</p>
         </div>
-        {isAdmin() && (
+        {canPublish && (
           <Button icon={Plus} onClick={() => { setSelected(null); setShowModal(true); }}>
             Nueva Publicación
           </Button>
         )}
       </div>
 
+      {/* Info sobre notificaciones */}
+      {canPublish && (
+        <Card className="bg-blue-500/10 border-blue-500/30">
+          <div className="flex items-center gap-3">
+            <Bell className="text-blue-400" size={24} />
+            <div>
+              <p className="font-medium text-blue-400">Notificaciones Push</p>
+              <p className="text-sm text-gray-400">Al publicar una novedad, se enviará una notificación a todos los miembros del gimnasio.</p>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {news.length === 0 ? (
         <EmptyState 
           icon={Megaphone} 
           title="Sin novedades" 
           description="Aún no hay publicaciones"
-          action={isAdmin() && <Button icon={Plus} onClick={() => setShowModal(true)}>Publicar</Button>}
+          action={canPublish && <Button icon={Plus} onClick={() => setShowModal(true)}>Publicar</Button>}
         />
       ) : (
         <div className="space-y-4">
           {news.map(item => (
-            <Card key={item.id} className="overflow-hidden">
+            <Card key={item.id}>
               <div className="flex justify-between items-start mb-3">
                 <div className="flex items-center gap-3">
                   <Avatar name={item.authorName} size="md" />
@@ -131,7 +140,7 @@ const News = () => {
                     <p className="text-xs text-gray-400">{formatRelativeDate(item.createdAt)}</p>
                   </div>
                 </div>
-                {isAdmin() && (
+                {canPublish && (
                   <Dropdown trigger={<button className="p-2 hover:bg-gray-700 rounded-lg"><MoreVertical size={18} /></button>}>
                     <DropdownItem icon={Edit} onClick={() => { setSelected(item); setShowModal(true); }}>Editar</DropdownItem>
                     <DropdownItem icon={Trash2} danger onClick={() => { setSelected(item); setShowDelete(true); }}>Eliminar</DropdownItem>
@@ -171,17 +180,17 @@ const News = () => {
 };
 
 const NewsModal = ({ isOpen, onClose, onSave, news }) => {
-  const [form, setForm] = useState({ title: '', body: '' });
+  const [form, setForm] = useState({ title: '', body: '', imageUrl: '' });
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (news) {
-      setForm({ title: news.title || '', body: news.body || '' });
+      setForm({ title: news.title || '', body: news.body || '', imageUrl: news.imageUrl || '' });
       setImagePreview(news.imageUrl || null);
     } else {
-      setForm({ title: '', body: '' });
+      setForm({ title: '', body: '', imageUrl: '' });
       setImagePreview(null);
     }
     setImageFile(null);
@@ -223,7 +232,7 @@ const NewsModal = ({ isOpen, onClose, onSave, news }) => {
           value={form.body} 
           onChange={e => setForm({ ...form, body: e.target.value })} 
           rows={5}
-          placeholder="Escribe el contenido de la publicación..."
+          placeholder="Escribe el contenido..."
           required
         />
 
@@ -231,17 +240,17 @@ const NewsModal = ({ isOpen, onClose, onSave, news }) => {
           <label className="block text-sm font-medium text-gray-300 mb-2">Imagen (opcional)</label>
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl cursor-pointer transition-colors">
-              <Image size={18} />
+              <ImageIcon size={18} />
               <span>Subir imagen</span>
               <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
             </label>
             {imagePreview && (
               <button 
                 type="button" 
-                onClick={() => { setImageFile(null); setImagePreview(null); }}
+                onClick={() => { setImageFile(null); setImagePreview(null); setForm({ ...form, imageUrl: '' }); }}
                 className="text-red-400 hover:text-red-300 text-sm"
               >
-                Quitar imagen
+                Quitar
               </button>
             )}
           </div>
@@ -250,11 +259,6 @@ const NewsModal = ({ isOpen, onClose, onSave, news }) => {
               <img src={imagePreview} alt="Preview" className="w-full max-h-48 object-cover" />
             </div>
           )}
-        </div>
-
-        <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-xl text-sm text-blue-400">
-          <Send size={16} className="inline mr-2" />
-          Al publicar, se enviará una notificación a todos los miembros del gimnasio
         </div>
 
         <div className="flex gap-3 pt-4">

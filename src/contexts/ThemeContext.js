@@ -1,91 +1,96 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { useAuth } from './AuthContext';
 
 const ThemeContext = createContext();
 
 export const useTheme = () => useContext(ThemeContext);
 
-// Paletas de colores predefinidas
 export const COLOR_PALETTES = [
-  { id: 'emerald', name: 'Esmeralda', primary: '#10B981', primaryDark: '#059669', primaryLight: '#34D399' },
-  { id: 'blue', name: 'Azul', primary: '#3B82F6', primaryDark: '#2563EB', primaryLight: '#60A5FA' },
-  { id: 'purple', name: 'Púrpura', primary: '#8B5CF6', primaryDark: '#7C3AED', primaryLight: '#A78BFA' },
-  { id: 'red', name: 'Rojo', primary: '#EF4444', primaryDark: '#DC2626', primaryLight: '#F87171' },
-  { id: 'orange', name: 'Naranja', primary: '#F97316', primaryDark: '#EA580C', primaryLight: '#FB923C' },
-  { id: 'pink', name: 'Rosa', primary: '#EC4899', primaryDark: '#DB2777', primaryLight: '#F472B6' },
-  { id: 'cyan', name: 'Cian', primary: '#06B6D4', primaryDark: '#0891B2', primaryLight: '#22D3EE' },
-  { id: 'yellow', name: 'Amarillo', primary: '#EAB308', primaryDark: '#CA8A04', primaryLight: '#FACC15' },
+  { id: 'emerald', name: 'Esmeralda', primary: '16, 185, 129', hex: '#10B981' },
+  { id: 'blue', name: 'Azul', primary: '59, 130, 246', hex: '#3B82F6' },
+  { id: 'purple', name: 'Púrpura', primary: '139, 92, 246', hex: '#8B5CF6' },
+  { id: 'red', name: 'Rojo', primary: '239, 68, 68', hex: '#EF4444' },
+  { id: 'orange', name: 'Naranja', primary: '249, 115, 22', hex: '#F97316' },
+  { id: 'pink', name: 'Rosa', primary: '236, 72, 153', hex: '#EC4899' },
+  { id: 'cyan', name: 'Cian', primary: '6, 182, 212', hex: '#06B6D4' },
+  { id: 'yellow', name: 'Amarillo', primary: '234, 179, 8', hex: '#EAB308' },
 ];
 
 export const ThemeProvider = ({ children }) => {
-  const { userData } = useAuth();
-  const [isDark, setIsDark] = useState(true);
-  const [colorPalette, setColorPalette] = useState(COLOR_PALETTES[0]);
+  const [isDark, setIsDark] = useState(() => {
+    const saved = localStorage.getItem('fitpro-dark-mode');
+    return saved !== null ? saved === 'true' : true;
+  });
+  const [paletteId, setPaletteId] = useState(() => {
+    return localStorage.getItem('fitpro-palette') || 'emerald';
+  });
   const [gymLogo, setGymLogo] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [gymId, setGymId] = useState(null);
 
-  // Cargar preferencias del gimnasio
+  // Escuchar cambios del gimnasio
   useEffect(() => {
-    if (!userData?.gymId) {
-      setLoading(false);
-      return;
-    }
+    if (!gymId) return;
 
-    const unsubscribe = onSnapshot(doc(db, 'gyms', userData.gymId), (doc) => {
-      if (doc.exists()) {
-        const data = doc.data();
+    const unsubscribe = onSnapshot(doc(db, 'gyms', gymId), (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
         if (data.colorPalette) {
-          const palette = COLOR_PALETTES.find(p => p.id === data.colorPalette) || COLOR_PALETTES[0];
-          setColorPalette(palette);
+          setPaletteId(data.colorPalette);
+          localStorage.setItem('fitpro-palette', data.colorPalette);
+        }
+        if (data.darkMode !== undefined) {
+          setIsDark(data.darkMode);
+          localStorage.setItem('fitpro-dark-mode', data.darkMode.toString());
         }
         if (data.logo) {
           setGymLogo(data.logo);
         }
-        if (data.darkMode !== undefined) {
-          setIsDark(data.darkMode);
-        }
       }
-      setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [userData?.gymId]);
+  }, [gymId]);
 
-  // Cargar preferencia local de tema
+  // Aplicar tema al DOM
   useEffect(() => {
-    const savedTheme = localStorage.getItem('fitpro-theme');
-    if (savedTheme) {
-      setIsDark(savedTheme === 'dark');
-    }
-  }, []);
-
-  // Aplicar CSS variables
-  useEffect(() => {
+    const palette = COLOR_PALETTES.find(p => p.id === paletteId) || COLOR_PALETTES[0];
     const root = document.documentElement;
-    root.style.setProperty('--color-primary', colorPalette.primary);
-    root.style.setProperty('--color-primary-dark', colorPalette.primaryDark);
-    root.style.setProperty('--color-primary-light', colorPalette.primaryLight);
     
+    // Aplicar color primario como CSS variable
+    root.style.setProperty('--color-primary', palette.primary);
+    root.style.setProperty('--color-primary-hex', palette.hex);
+    
+    // Aplicar modo oscuro/claro
     if (isDark) {
       root.classList.add('dark');
       root.classList.remove('light');
+      document.body.style.backgroundColor = '#0F172A';
+      document.body.style.color = '#F8FAFC';
     } else {
       root.classList.add('light');
       root.classList.remove('dark');
+      document.body.style.backgroundColor = '#F8FAFC';
+      document.body.style.color = '#1E293B';
     }
-    
-    localStorage.setItem('fitpro-theme', isDark ? 'dark' : 'light');
-  }, [isDark, colorPalette]);
+  }, [isDark, paletteId]);
 
-  const toggleTheme = () => setIsDark(!isDark);
+  const toggleTheme = () => {
+    const newValue = !isDark;
+    setIsDark(newValue);
+    localStorage.setItem('fitpro-dark-mode', newValue.toString());
+  };
 
-  const updateGymTheme = async (gymId, paletteId, darkMode) => {
+  const changePalette = (newPaletteId) => {
+    setPaletteId(newPaletteId);
+    localStorage.setItem('fitpro-palette', newPaletteId);
+  };
+
+  const saveGymTheme = async (targetGymId, newPaletteId, newDarkMode) => {
     try {
-      await updateDoc(doc(db, 'gyms', gymId), {
-        colorPalette: paletteId,
-        darkMode: darkMode
+      await updateDoc(doc(db, 'gyms', targetGymId), {
+        colorPalette: newPaletteId,
+        darkMode: newDarkMode
       });
       return { success: true };
     } catch (error) {
@@ -93,28 +98,29 @@ export const ThemeProvider = ({ children }) => {
     }
   };
 
-  const updateGymLogo = async (gymId, logoUrl) => {
+  const saveGymLogo = async (targetGymId, logoUrl) => {
     try {
-      await updateDoc(doc(db, 'gyms', gymId), { logo: logoUrl });
+      await updateDoc(doc(db, 'gyms', targetGymId), { logo: logoUrl });
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
     }
   };
 
-  const value = {
-    isDark,
-    toggleTheme,
-    colorPalette,
-    setColorPalette,
-    gymLogo,
-    loading,
-    updateGymTheme,
-    updateGymLogo
-  };
+  const colorPalette = COLOR_PALETTES.find(p => p.id === paletteId) || COLOR_PALETTES[0];
 
   return (
-    <ThemeContext.Provider value={value}>
+    <ThemeContext.Provider value={{
+      isDark,
+      toggleTheme,
+      paletteId,
+      colorPalette,
+      changePalette,
+      gymLogo,
+      setGymId,
+      saveGymTheme,
+      saveGymLogo
+    }}>
       {children}
     </ThemeContext.Provider>
   );
