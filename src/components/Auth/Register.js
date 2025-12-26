@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, Mail, Lock, Phone, ArrowRight, Dumbbell, CheckCircle, Building2, ChevronDown } from 'lucide-react';
+import { User, Mail, Lock, Phone, ArrowRight, Dumbbell, CheckCircle, Building2, ChevronDown, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
 import { collection, getDocs, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
@@ -16,7 +16,20 @@ const Register = ({ onToggle }) => {
   
   // Datos de invitación
   const [inviteData, setInviteData] = useState(null);
+  const [inviteCode, setInviteCode] = useState('');
   const [checkingInvite, setCheckingInvite] = useState(true);
+  const [inviteError, setInviteError] = useState('');
+
+  // Obtener código de invitación de la URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get('invite');
+    if (code) {
+      setInviteCode(code);
+      console.log('[Register] Found invite code in URL:', code);
+    }
+    setCheckingInvite(false);
+  }, []);
 
   // Cargar gimnasios disponibles
   useEffect(() => {
@@ -24,7 +37,7 @@ const Register = ({ onToggle }) => {
       try {
         const snap = await getDocs(collection(db, 'gyms'));
         const gymList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        console.log('[Register] Loaded gyms:', gymList);
+        console.log('[Register] Loaded gyms:', gymList.length);
         setGyms(gymList);
       } catch (err) {
         console.error('[Register] Error loading gyms:', err);
@@ -34,69 +47,58 @@ const Register = ({ onToggle }) => {
     loadGyms();
   }, []);
 
-  // Verificar si hay código de invitación en la URL
+  // Verificar invitación cuando hay código
   useEffect(() => {
-    const checkInvite = async () => {
-      const params = new URLSearchParams(window.location.search);
-      const code = params.get('invite');
-      
-      if (!code) {
-        console.log('[Register] No invite code in URL');
-        setCheckingInvite(false);
-        return;
-      }
+    if (!inviteCode) return;
 
-      console.log('[Register] Checking invite code:', code);
+    const checkInvite = async () => {
+      console.log('[Register] Checking invite code:', inviteCode);
+      setInviteError('');
 
       try {
-        // Buscar todas las invitaciones
         const invitesSnap = await getDocs(collection(db, 'invites'));
-        console.log('[Register] Total invites found:', invitesSnap.size);
+        console.log('[Register] Total invites in DB:', invitesSnap.size);
         
         let foundInvite = null;
         invitesSnap.forEach((docSnap) => {
           const data = docSnap.data();
-          console.log('[Register] Checking invite:', data.code, data.status, data.gymId, data.gymName);
-          
-          if (data.code === code && data.status === 'pending') {
-            foundInvite = { id: docSnap.id, ...data };
+          if (data.code === inviteCode) {
+            console.log('[Register] Found matching code:', data.code, 'status:', data.status, 'gymId:', data.gymId);
+            if (data.status === 'pending') {
+              foundInvite = { id: docSnap.id, ...data };
+            }
           }
         });
 
         if (foundInvite) {
-          console.log('[Register] Found valid invite:', foundInvite);
-          
-          // Verificar expiración (si tiene fecha de expiración)
+          // Verificar expiración
           if (foundInvite.expiresAt) {
             const expiresAt = foundInvite.expiresAt?.toDate?.() || new Date(foundInvite.expiresAt);
             if (expiresAt < new Date()) {
-              setError('Esta invitación ha expirado');
-              setCheckingInvite(false);
+              setInviteError('Esta invitación ha expirado');
               return;
             }
           }
-          // Si no tiene expiresAt, es permanente - válida
           
+          console.log('[Register] Valid invite found:', foundInvite);
           setInviteData(foundInvite);
           setForm(prev => ({ 
             ...prev, 
-            email: foundInvite.email || '',
+            email: foundInvite.email || prev.email,
             gymId: foundInvite.gymId || ''
           }));
         } else {
-          console.log('[Register] No valid invite found for code:', code);
-          setError('Código de invitación inválido o ya fue usado');
+          setInviteError('Código de invitación inválido o ya fue usado');
         }
       } catch (err) {
         console.error('[Register] Error checking invite:', err);
-        setError('Error al verificar invitación. Podés registrarte sin invitación.');
+        console.error('[Register] Error details:', err.code, err.message);
+        setInviteError(`Error al verificar: ${err.message}. Podés registrarte manualmente.`);
       }
-      
-      setCheckingInvite(false);
     };
 
     checkInvite();
-  }, []);
+  }, [inviteCode]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -122,9 +124,8 @@ const Register = ({ onToggle }) => {
     let result;
     
     if (inviteData && inviteData.gymId) {
-      console.log('[Register] Registering with invite:', inviteData);
+      console.log('[Register] Registering with invite:', inviteData.gymId, inviteData.roles);
       
-      // Registro con invitación - usa el gimnasio de la invitación
       result = await registerWithInvite(
         form.email,
         form.password,
@@ -134,7 +135,6 @@ const Register = ({ onToggle }) => {
         inviteData.roles || ['alumno']
       );
 
-      // Marcar invitación como usada
       if (result.success) {
         try {
           await updateDoc(doc(db, 'invites', inviteData.id), {
@@ -142,7 +142,6 @@ const Register = ({ onToggle }) => {
             usedAt: serverTimestamp(),
             usedByName: form.name
           });
-          // Limpiar URL
           window.history.replaceState({}, document.title, window.location.pathname);
         } catch (err) {
           console.error('[Register] Error updating invite:', err);
@@ -150,8 +149,6 @@ const Register = ({ onToggle }) => {
       }
     } else {
       console.log('[Register] Registering without invite, gymId:', form.gymId);
-      
-      // Registro libre - puede elegir gimnasio o sin gimnasio
       result = await register(form.email, form.password, form.name, form.phone, form.gymId || null);
     }
 
@@ -162,12 +159,20 @@ const Register = ({ onToggle }) => {
     setLoading(false);
   };
 
+  // Buscar gimnasio manualmente por código
+  const handleManualInvite = async () => {
+    const code = prompt('Ingresá el código de invitación:');
+    if (code) {
+      setInviteCode(code.trim().toUpperCase());
+    }
+  };
+
   if (checkingInvite) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-400">Verificando...</p>
+          <p className="text-gray-400">Cargando...</p>
         </div>
       </div>
     );
@@ -204,6 +209,21 @@ const Register = ({ onToggle }) => {
                       Roles: {inviteData.roles.join(', ')}
                     </p>
                   )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Error de invitación (advertencia, no bloquea registro) */}
+          {inviteError && !inviteData && (
+            <div className="mb-4 p-4 bg-yellow-500/20 border border-yellow-500/30 rounded-xl">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="text-yellow-400 flex-shrink-0 mt-0.5" size={20} />
+                <div>
+                  <p className="text-yellow-400 text-sm">{inviteError}</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    Podés registrarte eligiendo un gimnasio manualmente o sin gimnasio.
+                  </p>
                 </div>
               </div>
             </div>
@@ -247,9 +267,6 @@ const Register = ({ onToggle }) => {
                   disabled={!!inviteData?.email}
                 />
               </div>
-              {inviteData?.email && (
-                <p className="text-xs text-gray-500 mt-1">Email definido por la invitación</p>
-              )}
             </div>
 
             {/* Teléfono */}
@@ -267,18 +284,16 @@ const Register = ({ onToggle }) => {
               </div>
             </div>
 
-            {/* Gimnasio - bloqueado si hay invitación, selector si no */}
+            {/* Gimnasio */}
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">Gimnasio</label>
               <div className="relative">
                 <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={20} />
                 {inviteData ? (
-                  // Invitación: gimnasio bloqueado
                   <div className="w-full pl-10 pr-4 py-3 bg-green-500/10 border border-green-500/30 rounded-xl text-green-400 font-medium">
                     🔒 {inviteData.gymName || 'Gimnasio asignado'}
                   </div>
                 ) : (
-                  // Sin invitación: selector de gimnasio
                   <>
                     <select
                       value={form.gymId}
@@ -299,15 +314,21 @@ const Register = ({ onToggle }) => {
                 <p className="text-xs text-gray-500 mt-1">
                   {loadingGyms ? 'Cargando gimnasios...' : 
                    gyms.length === 0 ? 'No hay gimnasios disponibles' :
-                   `${gyms.length} gimnasio(s) disponible(s). También podés unirte después con una invitación.`}
-                </p>
-              )}
-              {inviteData && (
-                <p className="text-xs text-green-500/70 mt-1">
-                  El gimnasio está definido por la invitación
+                   `${gyms.length} gimnasio(s) disponible(s)`}
                 </p>
               )}
             </div>
+
+            {/* Código de invitación manual */}
+            {!inviteData && (
+              <button
+                type="button"
+                onClick={handleManualInvite}
+                className="w-full text-sm text-primary hover:text-primary/80 transition-colors"
+              >
+                ¿Tenés un código de invitación? Click acá
+              </button>
+            )}
 
             {/* Contraseña */}
             <div>
