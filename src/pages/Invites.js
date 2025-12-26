@@ -1,17 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Link, Plus, Copy, Trash2, QrCode, Check, Users } from 'lucide-react';
-import { Button, Card, Modal, Input, EmptyState, LoadingState, ConfirmDialog, Badge } from '../components/Common';
+import { Plus, Mail, Link2, Copy, Check, Trash2, Clock, UserPlus, Send } from 'lucide-react';
+import { Button, Card, Modal, Input, Select, EmptyState, LoadingState, Badge, ConfirmDialog } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { formatDate, formatRelativeDate } from '../utils/helpers';
+import { formatDate } from '../utils/helpers';
 
 const Invites = () => {
-  const { userData } = useAuth();
+  const { userData, canManageInvites, isAdmin } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
+  
   const [invites, setInvites] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -19,49 +20,53 @@ const Invites = () => {
   const [selected, setSelected] = useState(null);
   const [copiedId, setCopiedId] = useState(null);
 
+  const canEdit = canManageInvites();
+
   useEffect(() => {
     if (!currentGym?.id) { setLoading(false); return; }
 
     const q = query(collection(db, 'invites'), where('gymId', '==', currentGym.id));
     const unsubscribe = onSnapshot(q, (snap) => {
-      setInvites(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      items.sort((a, b) => {
+        const dateA = a.createdAt?.toDate?.() || new Date(0);
+        const dateB = b.createdAt?.toDate?.() || new Date(0);
+        return dateB - dateA;
+      });
+      setInvites(items);
       setLoading(false);
     });
 
     return () => unsubscribe();
   }, [currentGym]);
 
-  const generateInviteCode = () => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let code = '';
-    for (let i = 0; i < 8; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return code;
+  const generateCode = () => {
+    return Math.random().toString(36).substring(2, 8).toUpperCase();
   };
 
   const handleCreate = async (data) => {
     try {
-      const code = generateInviteCode();
-      const expiresAt = data.expiresIn ? new Date(Date.now() + data.expiresIn * 24 * 60 * 60 * 1000) : null;
+      const code = generateCode();
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + (data.expiresInDays || 7));
 
       await addDoc(collection(db, 'invites'), {
         code,
+        email: data.email || null,
+        roles: data.roles || ['alumno'],
         gymId: currentGym.id,
         gymName: currentGym.name,
+        status: 'pending',
         createdBy: userData.id,
         createdByName: userData.name,
-        description: data.description || '',
-        maxUses: data.maxUses || null,
-        usedCount: 0,
-        expiresAt,
-        isActive: true,
-        createdAt: serverTimestamp()
+        createdAt: serverTimestamp(),
+        expiresAt
       });
 
       success('Invitación creada');
       setShowModal(false);
     } catch (err) {
+      console.error(err);
       showError('Error al crear invitación');
     }
   };
@@ -78,48 +83,61 @@ const Invites = () => {
   };
 
   const copyLink = (invite) => {
-    const link = `${window.location.origin}/register?invite=${invite.code}`;
+    const baseUrl = window.location.origin;
+    const link = `${baseUrl}?invite=${invite.code}`;
     navigator.clipboard.writeText(link);
     setCopiedId(invite.id);
-    success('Link copiado al portapapeles');
+    success('Link copiado');
     setTimeout(() => setCopiedId(null), 2000);
   };
 
-  const isExpired = (invite) => {
-    if (!invite.expiresAt) return false;
-    const expiresAt = invite.expiresAt?.toDate ? invite.expiresAt.toDate() : new Date(invite.expiresAt);
-    return expiresAt < new Date();
+  const getStatusBadge = (invite) => {
+    if (invite.status === 'used') {
+      return <Badge className="bg-green-500/20 text-green-400">Usada</Badge>;
+    }
+    if (invite.expiresAt?.toDate() < new Date()) {
+      return <Badge className="bg-red-500/20 text-red-400">Expirada</Badge>;
+    }
+    return <Badge className="bg-yellow-500/20 text-yellow-400">Pendiente</Badge>;
   };
 
-  const isMaxedOut = (invite) => {
-    if (!invite.maxUses) return false;
-    return invite.usedCount >= invite.maxUses;
+  const getRolesText = (roles) => {
+    if (!roles || roles.length === 0) return 'Alumno';
+    const roleNames = {
+      sysadmin: 'Sysadmin',
+      admin: 'Admin',
+      profesor: 'Profesor',
+      alumno: 'Alumno'
+    };
+    return roles.map(r => roleNames[r] || r).join(', ');
   };
 
   if (loading) return <LoadingState />;
-  if (!currentGym) return <EmptyState icon={Link} title="Sin gimnasio" />;
+  if (!currentGym) return <EmptyState icon={Mail} title="Sin gimnasio" />;
 
   return (
     <div className="space-y-6 animate-fadeIn">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold">Invitaciones</h1>
-          <p className="text-gray-400">Genera links para invitar alumnos</p>
+          <p className="text-gray-400">{invites.filter(i => i.status === 'pending').length} pendientes</p>
         </div>
-        <Button icon={Plus} onClick={() => setShowModal(true)}>Nueva Invitación</Button>
+        {canEdit && (
+          <Button icon={Plus} onClick={() => setShowModal(true)}>
+            Nueva Invitación
+          </Button>
+        )}
       </div>
 
-      {/* Info card */}
-      <Card className="bg-gradient-to-r from-emerald-500/10 to-blue-500/10 border-emerald-500/20">
-        <div className="flex items-start gap-4">
-          <div className="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center">
-            <Users className="text-emerald-500" size={24} />
-          </div>
+      {/* Info */}
+      <Card className="bg-blue-500/10 border-blue-500/30">
+        <div className="flex items-start gap-3">
+          <UserPlus className="text-blue-400 mt-1" size={20} />
           <div>
-            <h3 className="font-semibold mb-1">¿Cómo funciona?</h3>
-            <p className="text-sm text-gray-400">
-              Genera un link de invitación y compártelo con tus alumnos. 
-              Cuando se registren usando el link, automáticamente quedarán asociados a tu gimnasio.
+            <p className="text-blue-400 font-medium">¿Cómo funcionan las invitaciones?</p>
+            <p className="text-sm text-gray-400 mt-1">
+              Al crear una invitación se genera un link único. Cuando alguien se registra usando ese link, 
+              automáticamente queda asociado a este gimnasio con los roles que hayas configurado.
             </p>
           </div>
         </div>
@@ -127,133 +145,171 @@ const Invites = () => {
 
       {invites.length === 0 ? (
         <EmptyState 
-          icon={Link} 
-          title="Sin invitaciones" 
-          description="Crea tu primera invitación para compartir con alumnos"
-          action={<Button icon={Plus} onClick={() => setShowModal(true)}>Crear</Button>}
+          icon={Mail} 
+          title="No hay invitaciones" 
+          description="Creá una invitación para sumar miembros al gimnasio"
+          action={canEdit && <Button icon={Plus} onClick={() => setShowModal(true)}>Crear</Button>}
         />
       ) : (
         <div className="space-y-3">
-          {invites.map(invite => {
-            const expired = isExpired(invite);
-            const maxed = isMaxedOut(invite);
-            const inactive = expired || maxed || !invite.isActive;
-
-            return (
-              <Card key={invite.id} className={inactive ? 'opacity-60' : ''}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${inactive ? 'bg-gray-700' : 'bg-emerald-500/20'}`}>
-                      <Link className={inactive ? 'text-gray-400' : 'text-emerald-500'} size={24} />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <code className="text-lg font-mono font-semibold">{invite.code}</code>
-                        {expired && <Badge variant="error">Expirado</Badge>}
-                        {maxed && <Badge variant="warning">Límite alcanzado</Badge>}
-                        {!inactive && <Badge variant="success">Activo</Badge>}
-                      </div>
-                      {invite.description && <p className="text-sm text-gray-400">{invite.description}</p>}
-                      <div className="flex items-center gap-4 mt-1 text-xs text-gray-500">
-                        <span>Creado {formatRelativeDate(invite.createdAt)}</span>
-                        <span>{invite.usedCount} usos{invite.maxUses ? ` / ${invite.maxUses}` : ''}</span>
-                        {invite.expiresAt && <span>Expira: {formatDate(invite.expiresAt)}</span>}
-                      </div>
-                    </div>
+          {invites.map(invite => (
+            <Card key={invite.id}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-3 mb-2">
+                    <code className="px-3 py-1 bg-gray-800 rounded-lg text-primary font-mono">
+                      {invite.code}
+                    </code>
+                    {getStatusBadge(invite)}
                   </div>
-                  <div className="flex items-center gap-2">
+                  
+                  <div className="text-sm text-gray-400 space-y-1">
+                    {invite.email && (
+                      <p className="flex items-center gap-2">
+                        <Mail size={14} /> {invite.email}
+                      </p>
+                    )}
+                    <p>Roles: <strong className="text-gray-300">{getRolesText(invite.roles)}</strong></p>
+                    <p className="flex items-center gap-2">
+                      <Clock size={14} /> 
+                      {invite.status === 'used' 
+                        ? `Usado por ${invite.usedByName}` 
+                        : `Expira: ${formatDate(invite.expiresAt)}`
+                      }
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  {invite.status === 'pending' && (
                     <Button
                       variant="secondary"
                       size="sm"
                       icon={copiedId === invite.id ? Check : Copy}
                       onClick={() => copyLink(invite)}
-                      disabled={inactive}
                     >
-                      {copiedId === invite.id ? 'Copiado' : 'Copiar'}
+                      {copiedId === invite.id ? 'Copiado!' : 'Copiar Link'}
                     </Button>
+                  )}
+                  {canEdit && (
                     <Button
-                      variant="ghost"
+                      variant="secondary"
                       size="sm"
                       icon={Trash2}
                       onClick={() => { setSelected(invite); setShowDelete(true); }}
-                      className="text-red-400 hover:text-red-300"
+                      className="text-red-400 hover:bg-red-500/20"
                     />
-                  </div>
+                  )}
                 </div>
-              </Card>
-            );
-          })}
+              </div>
+            </Card>
+          ))}
         </div>
       )}
 
-      <InviteModal isOpen={showModal} onClose={() => setShowModal(false)} onCreate={handleCreate} />
-      <ConfirmDialog isOpen={showDelete} onClose={() => setShowDelete(false)} onConfirm={handleDelete} title="Eliminar" message="¿Eliminar esta invitación?" confirmText="Eliminar" />
+      <InviteModal isOpen={showModal} onClose={() => setShowModal(false)} onCreate={handleCreate} isAdmin={isAdmin()} />
+      <ConfirmDialog isOpen={showDelete} onClose={() => setShowDelete(false)} onConfirm={handleDelete} title="Eliminar Invitación" message="¿Eliminar esta invitación?" confirmText="Eliminar" />
     </div>
   );
 };
 
-const InviteModal = ({ isOpen, onClose, onCreate }) => {
-  const [form, setForm] = useState({ description: '', maxUses: '', expiresIn: '' });
+const InviteModal = ({ isOpen, onClose, onCreate, isAdmin }) => {
+  const { isSysadmin } = useAuth();
+  const [form, setForm] = useState({ email: '', roles: ['alumno'], expiresInDays: 7 });
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    setForm({ description: '', maxUses: '', expiresIn: '' });
-  }, [isOpen]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    await onCreate({
-      description: form.description,
-      maxUses: form.maxUses ? parseInt(form.maxUses) : null,
-      expiresIn: form.expiresIn ? parseInt(form.expiresIn) : null
-    });
+    await onCreate(form);
     setLoading(false);
+    setForm({ email: '', roles: ['alumno'], expiresInDays: 7 });
   };
 
-  const expirationOptions = [
-    { value: '', label: 'Sin expiración' },
-    { value: '1', label: '1 día' },
-    { value: '7', label: '7 días' },
-    { value: '30', label: '30 días' },
-    { value: '90', label: '90 días' }
+  const toggleRole = (role) => {
+    setForm(prev => {
+      const hasRole = prev.roles.includes(role);
+      let newRoles;
+      
+      if (hasRole) {
+        // No permitir quitar alumno si es el único rol
+        if (role === 'alumno' && prev.roles.length === 1) return prev;
+        newRoles = prev.roles.filter(r => r !== role);
+      } else {
+        newRoles = [...prev.roles, role];
+      }
+      
+      // Siempre incluir alumno
+      if (!newRoles.includes('alumno')) {
+        newRoles.push('alumno');
+      }
+      
+      return { ...prev, roles: newRoles };
+    });
+  };
+
+  const availableRoles = [
+    { id: 'alumno', name: 'Alumno', description: 'Acceso básico', always: true },
+    { id: 'profesor', name: 'Profesor', description: 'Crear rutinas, WODs, validar PRs' },
+    { id: 'admin', name: 'Admin', description: 'Gestión completa del gimnasio' },
   ];
+
+  if (isSysadmin()) {
+    availableRoles.push({ id: 'sysadmin', name: 'Sysadmin', description: 'Poder absoluto' });
+  }
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Nueva Invitación">
       <form onSubmit={handleSubmit} className="space-y-4">
         <Input 
-          label="Descripción (opcional)" 
-          value={form.description} 
-          onChange={e => setForm({ ...form, description: e.target.value })} 
-          placeholder="Ej: Promoción Enero 2025"
-        />
-        
-        <Input 
-          label="Límite de usos (opcional)" 
-          type="number" 
-          value={form.maxUses} 
-          onChange={e => setForm({ ...form, maxUses: e.target.value })} 
-          placeholder="Ej: 50"
-          min={1}
+          label="Email (opcional)" 
+          type="email"
+          value={form.email} 
+          onChange={e => setForm({ ...form, email: e.target.value })} 
+          placeholder="Si lo dejás vacío, cualquiera puede usar el link"
         />
 
-        <div className="space-y-1">
-          <label className="block text-sm font-medium text-gray-300">Expiración</label>
-          <select
-            value={form.expiresIn}
-            onChange={e => setForm({ ...form, expiresIn: e.target.value })}
-            className="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-xl text-white"
-          >
-            {expirationOptions.map(opt => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">Roles a asignar</label>
+          <div className="space-y-2">
+            {availableRoles.map(role => (
+              <label 
+                key={role.id}
+                className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors ${
+                  form.roles.includes(role.id) ? 'bg-primary/20 border border-primary/50' : 'bg-gray-800/50 border border-gray-700 hover:bg-gray-700/50'
+                } ${role.always ? 'opacity-50 cursor-not-allowed' : ''}`}
+              >
+                <input 
+                  type="checkbox" 
+                  checked={form.roles.includes(role.id)} 
+                  onChange={() => !role.always && toggleRole(role.id)}
+                  disabled={role.always}
+                  className="w-4 h-4"
+                />
+                <div>
+                  <p className="font-medium">{role.name}</p>
+                  <p className="text-xs text-gray-400">{role.description}</p>
+                </div>
+              </label>
             ))}
-          </select>
+          </div>
         </div>
+
+        <Select 
+          label="Válida por" 
+          value={form.expiresInDays} 
+          onChange={e => setForm({ ...form, expiresInDays: parseInt(e.target.value) })}
+          options={[
+            { value: 1, label: '1 día' },
+            { value: 7, label: '7 días' },
+            { value: 30, label: '30 días' },
+            { value: 90, label: '90 días' },
+          ]}
+        />
 
         <div className="flex gap-3 pt-4">
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancelar</Button>
-          <Button type="submit" loading={loading} className="flex-1">Crear Invitación</Button>
+          <Button type="submit" loading={loading} className="flex-1" icon={Send}>Crear Invitación</Button>
         </div>
       </form>
     </Modal>

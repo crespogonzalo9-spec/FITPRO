@@ -1,149 +1,99 @@
 // Formatear fecha
-export const formatDate = (date) => {
-  if (!date) return '-';
-  const d = date.toDate ? date.toDate() : new Date(date);
-  return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+export const formatDate = (timestamp) => {
+  if (!timestamp) return '';
+  const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+  return date.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 };
 
-// Formatear hora
-export const formatTime = (date) => {
-  if (!date) return '-';
-  const d = date.toDate ? date.toDate() : new Date(date);
-  return d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
-};
-
-// Formatear fecha y hora
-export const formatDateTime = (date) => {
-  if (!date) return '-';
-  return `${formatDate(date)} ${formatTime(date)}`;
-};
-
-// Formatear tiempo (mm:ss o hh:mm:ss)
-export const formatTimeValue = (seconds) => {
-  if (!seconds && seconds !== 0) return '-';
-  const hrs = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  const secs = seconds % 60;
-  if (hrs > 0) {
-    return `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  }
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
-};
-
-// Parsear tiempo (mm:ss) a segundos
-export const parseTimeToSeconds = (timeStr) => {
-  if (!timeStr) return 0;
-  const parts = timeStr.split(':').map(Number);
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  return 0;
-};
-
-// Fecha relativa
-export const formatRelativeDate = (date) => {
-  if (!date) return '';
-  const d = date.toDate ? date.toDate() : new Date(date);
+// Formatear fecha relativa
+export const formatRelativeDate = (timestamp) => {
+  if (!timestamp) return '';
+  const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
   const now = new Date();
-  const diff = now - d;
-  const mins = Math.floor(diff / 60000);
+  const diff = now - date;
+  const minutes = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
   const days = Math.floor(diff / 86400000);
-  
-  if (mins < 1) return 'Ahora';
-  if (mins < 60) return `Hace ${mins} min`;
+
+  if (minutes < 1) return 'Ahora';
+  if (minutes < 60) return `Hace ${minutes} min`;
   if (hours < 24) return `Hace ${hours}h`;
-  if (days < 7) return `Hace ${days}d`;
-  return formatDate(date);
+  if (days < 7) return `Hace ${days} días`;
+  return formatDate(timestamp);
 };
 
-// Obtener iniciales
+// Obtener nombre de rol
+export const getRoleName = (role) => {
+  const roles = {
+    sysadmin: 'Sysadmin',
+    admin: 'Admin',
+    profesor: 'Profesor',
+    alumno: 'Alumno'
+  };
+  return roles[role] || role;
+};
+
+// Obtener nombres de roles múltiples
+export const getRolesNames = (roles) => {
+  if (!roles || roles.length === 0) return 'Alumno';
+  return roles.map(r => getRoleName(r)).join(', ');
+};
+
+// Obtener color de rol (el más alto)
+export const getRoleColor = (roles) => {
+  const roleArray = Array.isArray(roles) ? roles : [roles];
+  if (roleArray.includes('sysadmin')) return 'bg-yellow-500/20 text-yellow-400';
+  if (roleArray.includes('admin')) return 'bg-blue-500/20 text-blue-400';
+  if (roleArray.includes('profesor')) return 'bg-purple-500/20 text-purple-400';
+  return 'bg-gray-500/20 text-gray-400';
+};
+
+// Obtener estado de PR
+export const getPRStatusName = (status) => {
+  const statuses = {
+    pending: 'Pendiente',
+    validated: 'Validado',
+    rejected: 'Rechazado'
+  };
+  return statuses[status] || status;
+};
+
+export const getPRStatusColor = (status) => {
+  const colors = {
+    pending: 'bg-yellow-500/20 text-yellow-400',
+    validated: 'bg-green-500/20 text-green-400',
+    rejected: 'bg-red-500/20 text-red-400'
+  };
+  return colors[status] || 'bg-gray-500/20 text-gray-400';
+};
+
+// Formatear valor con unidad
+export const formatTimeValue = (value, unit) => {
+  if (!value) return '-';
+  
+  if (unit === 'tiempo' || unit === 'time') {
+    const totalSeconds = parseFloat(value);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = Math.floor(totalSeconds % 60);
+    return minutes > 0 ? `${minutes}:${seconds.toString().padStart(2, '0')}` : `${seconds}s`;
+  }
+  
+  return `${value} ${unit || 'kg'}`;
+};
+
+// Generar iniciales
 export const getInitials = (name) => {
   if (!name) return '?';
-  const parts = name.trim().split(' ');
-  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
-  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase();
+  return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 };
 
-// Color de estado de suscripción
-export const getSubscriptionStatusColor = (status) => {
-  const colors = { active: 'success', pending: 'warning', expired: 'error', cancelled: 'neutral' };
-  return colors[status] || 'neutral';
-};
-
-export const getSubscriptionStatusName = (status) => {
-  const names = { active: 'Activa', pending: 'Pendiente', expired: 'Vencida', cancelled: 'Cancelada' };
-  return names[status] || status;
-};
-
-// Color de estado de PR
-export const getPRStatusColor = (status) => {
-  const colors = { pending: 'warning', validated: 'success', rejected: 'error' };
-  return colors[status] || 'neutral';
-};
-
-export const getPRStatusName = (status) => {
-  const names = { pending: 'Pendiente', validated: 'Validada', rejected: 'Rechazada' };
-  return names[status] || status;
-};
-
-// Nombre del rol
-export const getRoleName = (role) => {
-  const names = { sysadmin: 'Sysadmin', admin: 'Administrador', profesor: 'Profesor', alumno: 'Alumno' };
-  return names[role] || role;
-};
-
-// Color del rol
-export const getRoleColor = (role) => {
-  const colors = { sysadmin: 'purple', admin: 'blue', profesor: 'emerald', alumno: 'gray' };
-  return colors[role] || 'gray';
-};
-
-// Validar email
-export const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-
-// Validar teléfono
-export const isValidPhone = (phone) => /^[0-9]{8,15}$/.test(phone.replace(/\D/g, ''));
-
-// Truncar texto
-export const truncateText = (text, maxLength = 50) => {
-  if (!text || text.length <= maxLength) return text;
-  return text.substring(0, maxLength) + '...';
-};
-
-// Capitalizar primera letra
-export const capitalize = (str) => {
-  if (!str) return '';
-  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
-};
-
-// Generar ID único
-export const generateId = () => {
-  return Date.now().toString(36) + Math.random().toString(36).substr(2);
-};
-
-// Ordenar por campo
-export const sortBy = (array, field, order = 'asc') => {
-  return [...array].sort((a, b) => {
-    if (order === 'asc') return a[field] > b[field] ? 1 : -1;
-    return a[field] < b[field] ? 1 : -1;
-  });
-};
-
-// Agrupar por campo
-export const groupBy = (array, field) => {
-  return array.reduce((groups, item) => {
-    const key = item[field];
-    if (!groups[key]) groups[key] = [];
-    groups[key].push(item);
-    return groups;
-  }, {});
-};
-
-// Día de la semana actual (0-6)
-export const getCurrentDayOfWeek = () => new Date().getDay();
-
-// Nombre del día
-export const getDayName = (dayIndex) => {
-  const days = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-  return days[dayIndex] || '';
+// Generar color consistente basado en string
+export const stringToColor = (str) => {
+  if (!str) return '#6B7280';
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const colors = ['#EF4444', '#F97316', '#EAB308', '#22C55E', '#14B8A6', '#3B82F6', '#8B5CF6', '#EC4899'];
+  return colors[Math.abs(hash) % colors.length];
 };

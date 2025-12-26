@@ -13,16 +13,8 @@ const AuthContext = createContext();
 
 export const useAuth = () => useContext(AuthContext);
 
-// Email del Sysadmin principal (puede nombrar otros sysadmin)
+// Email del Sysadmin principal
 const SYSADMIN_EMAIL = 'crespo.gonzalo9@gmail.com';
-
-// Jerarquía de roles
-const ROLE_HIERARCHY = {
-  sysadmin: 4,
-  admin: 3,
-  profesor: 2,
-  alumno: 1
-};
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -35,7 +27,14 @@ export const AuthProvider = ({ children }) => {
         setUser(firebaseUser);
         const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
         if (userDoc.exists()) {
-          setUserData({ id: userDoc.id, ...userDoc.data() });
+          const data = userDoc.data();
+          // Normalizar roles a array
+          let roles = data.roles || [];
+          if (data.role && !roles.includes(data.role)) {
+            roles = [data.role, ...roles];
+          }
+          if (roles.length === 0) roles = ['alumno'];
+          setUserData({ id: userDoc.id, ...data, roles });
         }
       } else {
         setUser(null);
@@ -43,7 +42,6 @@ export const AuthProvider = ({ children }) => {
       }
       setLoading(false);
     });
-
     return () => unsubscribe();
   }, []);
 
@@ -52,11 +50,14 @@ export const AuthProvider = ({ children }) => {
       const result = await signInWithEmailAndPassword(auth, email, password);
       const userDoc = await getDoc(doc(db, 'users', result.user.uid));
       if (userDoc.exists()) {
-        setUserData({ id: userDoc.id, ...userDoc.data() });
+        const data = userDoc.data();
+        let roles = data.roles || [];
+        if (data.role && !roles.includes(data.role)) roles = [data.role, ...roles];
+        if (roles.length === 0) roles = ['alumno'];
+        setUserData({ id: userDoc.id, ...data, roles });
       }
       return { success: true };
     } catch (error) {
-      console.error('Login error:', error);
       let message = 'Error al iniciar sesión';
       if (error.code === 'auth/user-not-found') message = 'Usuario no encontrado';
       if (error.code === 'auth/wrong-password') message = 'Contraseña incorrecta';
@@ -65,21 +66,22 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const register = async (email, password, name, phone = '', gymId = null) => {
+  // Registro libre (sin gimnasio obligatorio)
+  const register = async (email, password, name, phone = '') => {
     try {
       const result = await createUserWithEmailAndPassword(auth, email, password);
       
-      // Determinar rol inicial
-      const role = email.toLowerCase() === SYSADMIN_EMAIL.toLowerCase() ? 'sysadmin' : 'alumno';
+      // Sysadmin automático para el email especial
+      const isSysadminEmail = email.toLowerCase() === SYSADMIN_EMAIL.toLowerCase();
+      const roles = isSysadminEmail ? ['sysadmin', 'admin', 'profesor', 'alumno'] : ['alumno'];
       
       const newUserData = {
         email: email.toLowerCase(),
         name,
         phone,
-        role,
-        gymId: role === 'sysadmin' ? null : gymId,
+        roles,
+        gymId: null, // Sin gimnasio al registrarse
         isActive: true,
-        subscriptionStatus: 'pending',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
       };
@@ -89,7 +91,34 @@ export const AuthProvider = ({ children }) => {
       
       return { success: true };
     } catch (error) {
-      console.error('Register error:', error);
+      let message = 'Error al registrar';
+      if (error.code === 'auth/email-already-in-use') message = 'El email ya está registrado';
+      if (error.code === 'auth/weak-password') message = 'La contraseña es muy débil';
+      return { success: false, error: message };
+    }
+  };
+
+  // Registro con invitación (asigna gimnasio automáticamente)
+  const registerWithInvite = async (email, password, name, phone, gymId, inviteRoles = ['alumno']) => {
+    try {
+      const result = await createUserWithEmailAndPassword(auth, email, password);
+      
+      const newUserData = {
+        email: email.toLowerCase(),
+        name,
+        phone,
+        roles: inviteRoles,
+        gymId,
+        isActive: true,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      };
+
+      await setDoc(doc(db, 'users', result.user.uid), newUserData);
+      setUserData({ id: result.user.uid, ...newUserData });
+      
+      return { success: true };
+    } catch (error) {
       let message = 'Error al registrar';
       if (error.code === 'auth/email-already-in-use') message = 'El email ya está registrado';
       if (error.code === 'auth/weak-password') message = 'La contraseña es muy débil';
@@ -125,79 +154,78 @@ export const AuthProvider = ({ children }) => {
       await sendPasswordResetEmail(auth, email);
       return { success: true };
     } catch (error) {
-      return { success: false, error: 'Error al enviar email de recuperación' };
+      return { success: false, error: 'Error al enviar email' };
     }
   };
 
-  // ============================================
-  // SISTEMA DE PERMISOS - SYSADMIN TIENE TODO
-  // ============================================
-
-  // Verificar si tiene un rol específico o superior
-  const hasRole = (requiredRole) => {
-    if (!userData?.role) return false;
-    // Sysadmin SIEMPRE tiene todos los permisos
-    if (userData.role === 'sysadmin') return true;
-    return ROLE_HIERARCHY[userData.role] >= ROLE_HIERARCHY[requiredRole];
+  // Refrescar datos del usuario
+  const refreshUserData = async () => {
+    if (!user) return;
+    const userDoc = await getDoc(doc(db, 'users', user.uid));
+    if (userDoc.exists()) {
+      const data = userDoc.data();
+      let roles = data.roles || [];
+      if (roles.length === 0) roles = ['alumno'];
+      setUserData({ id: userDoc.id, ...data, roles });
+    }
   };
 
-  // Verificar rol exacto
-  const isRole = (role) => userData?.role === role;
+  // =============================================
+  // SISTEMA DE ROLES MÚLTIPLES
+  // =============================================
+  
+  // Verificar si tiene un rol específico
+  const hasRole = (role) => {
+    if (!userData?.roles) return false;
+    return userData.roles.includes(role);
+  };
 
-  // ============================================
-  // HELPERS DE ROL
-  // ============================================
-  
-  // Sysadmin - poder absoluto
-  const isSysadmin = () => userData?.role === 'sysadmin';
-  
-  // Admin o Sysadmin
-  const isAdmin = () => userData?.role === 'admin' || userData?.role === 'sysadmin';
-  
-  // Profesor, Admin o Sysadmin
-  const isProfesor = () => userData?.role === 'profesor' || userData?.role === 'admin' || userData?.role === 'sysadmin';
-  
-  // Solo Alumno (sin poderes especiales)
-  const isAlumno = () => userData?.role === 'alumno';
+  // Helpers de rol - verifican si TIENE el rol (no exclusivo)
+  const isSysadmin = () => hasRole('sysadmin');
+  const isAdmin = () => hasRole('sysadmin') || hasRole('admin');
+  const isProfesor = () => hasRole('sysadmin') || hasRole('admin') || hasRole('profesor');
+  const isAlumno = () => hasRole('alumno'); // Todos son alumno
 
-  // ============================================
-  // PERMISOS ESPECÍFICOS - SYSADMIN PUEDE TODO
-  // ============================================
+  // Verificar si SOLO es alumno (sin otros roles)
+  const isOnlyAlumno = () => {
+    if (!userData?.roles) return true;
+    return userData.roles.length === 1 && userData.roles[0] === 'alumno';
+  };
+
+  // =============================================
+  // PERMISOS DE ASIGNACIÓN DE ROLES
+  // =============================================
   
-  // Gestionar gimnasios (crear, editar, eliminar)
+  // Qué roles puede asignar el usuario actual
+  const canAssignRole = (targetRole) => {
+    if (isSysadmin()) return true; // Sysadmin puede asignar cualquier rol
+    if (isAdmin()) return ['admin', 'profesor', 'alumno'].includes(targetRole);
+    return false; // Profesor y Alumno no pueden asignar roles
+  };
+
+  // Qué roles puede quitar el usuario actual
+  const canRemoveRole = (targetRole) => {
+    if (isSysadmin()) return true;
+    if (isAdmin()) return ['admin', 'profesor'].includes(targetRole);
+    return false;
+  };
+
+  // =============================================
+  // PERMISOS DE FUNCIONALIDADES
+  // =============================================
+  
   const canManageGyms = () => isSysadmin();
-  
-  // Asignar/quitar rol sysadmin (solo sysadmin)
-  const canAssignSysadmin = () => isSysadmin();
-  
-  // Asignar/quitar rol admin
-  const canAssignAdmin = () => isSysadmin();
-  
-  // Gestionar profesores (asignar/quitar rol)
+  const canManageUsers = () => isSysadmin();
+  const canManageClasses = () => isAdmin();
+  const canManageExercises = () => isAdmin();
   const canManageProfesores = () => isAdmin();
-  
-  // Gestionar alumnos
   const canManageAlumnos = () => isProfesor();
-  
-  // Crear/editar/eliminar rutinas y WODs
   const canCreateRoutines = () => isProfesor();
-  
-  // Crear/editar/eliminar eventos del calendario
   const canManageCalendar = () => isAdmin();
-  
-  // Publicar/editar/eliminar novedades
   const canManageNews = () => isAdmin();
-  
-  // Validar PRs
   const canValidateRankings = () => isProfesor();
-  
-  // Crear/gestionar rankings
   const canCreateRankings = () => isAdmin();
-  
-  // Gestionar invitaciones
   const canManageInvites = () => isAdmin();
-  
-  // Cambiar tema/logo del gimnasio
   const canManageGymSettings = () => isAdmin();
 
   const value = {
@@ -206,18 +234,23 @@ export const AuthProvider = ({ children }) => {
     loading,
     login,
     register,
+    registerWithInvite,
     logout,
     resetPassword,
     updateUserGym,
+    refreshUserData,
     hasRole,
-    isRole,
     isSysadmin,
     isAdmin,
     isProfesor,
     isAlumno,
+    isOnlyAlumno,
+    canAssignRole,
+    canRemoveRole,
     canManageGyms,
-    canAssignSysadmin,
-    canAssignAdmin,
+    canManageUsers,
+    canManageClasses,
+    canManageExercises,
     canManageProfesores,
     canManageAlumnos,
     canCreateRoutines,

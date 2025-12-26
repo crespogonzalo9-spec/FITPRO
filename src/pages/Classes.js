@@ -9,38 +9,36 @@ import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc
 import { DAYS_OF_WEEK } from '../utils/constants';
 
 const Classes = () => {
-  const { userData, isAdmin } = useAuth();
+  const { userData, canManageClasses, isProfesor } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
+  
   const [classes, setClasses] = useState([]);
   const [profesores, setProfesores] = useState([]);
   const [loading, setLoading] = useState(true);
+  
   const [showModal, setShowModal] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
-  const [showEnroll, setShowEnroll] = useState(false);
   const [selected, setSelected] = useState(null);
+
+  const canEdit = canManageClasses();
 
   useEffect(() => {
     if (!currentGym?.id) { setLoading(false); return; }
 
-    const qClasses = query(collection(db, 'classes'), where('gymId', '==', currentGym.id));
-    const unsubClasses = onSnapshot(qClasses, (snap) => {
+    const classesQuery = query(collection(db, 'classes'), where('gymId', '==', currentGym.id));
+    const unsubClasses = onSnapshot(classesQuery, (snap) => {
       setClasses(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
     });
 
-    const qProfesores = query(collection(db, 'users'), where('gymId', '==', currentGym.id), where('role', '==', 'profesor'));
-    const unsubProfesores = onSnapshot(qProfesores, (snap) => {
+    const profesQuery = query(collection(db, 'users'), where('gymId', '==', currentGym.id), where('role', 'in', ['profesor', 'admin', 'sysadmin']));
+    const unsubProf = onSnapshot(profesQuery, (snap) => {
       setProfesores(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    return () => { unsubClasses(); unsubProfesores(); };
+    return () => { unsubClasses(); unsubProf(); };
   }, [currentGym]);
-
-  const groupedClasses = DAYS_OF_WEEK.slice(1, 7).concat(DAYS_OF_WEEK[0]).map(day => ({
-    ...day,
-    classes: classes.filter(c => c.dayOfWeek === day.id).sort((a, b) => a.startTime?.localeCompare(b.startTime))
-  }));
 
   const handleSave = async (data) => {
     try {
@@ -48,7 +46,7 @@ const Classes = () => {
         await updateDoc(doc(db, 'classes', selected.id), { ...data, updatedAt: serverTimestamp() });
         success('Clase actualizada');
       } else {
-        await addDoc(collection(db, 'classes'), { ...data, gymId: currentGym.id, enrolledCount: 0, isActive: true, createdAt: serverTimestamp() });
+        await addDoc(collection(db, 'classes'), { ...data, gymId: currentGym.id, enrolledCount: 0, createdAt: serverTimestamp() });
         success('Clase creada');
       }
       setShowModal(false);
@@ -69,76 +67,68 @@ const Classes = () => {
     }
   };
 
-  const getProfesorName = (id) => profesores.find(p => p.id === id)?.name || 'Sin asignar';
+  const getDayName = (dayId) => DAYS_OF_WEEK.find(d => d.id === parseInt(dayId))?.name || dayId;
+  const getProfesorName = (profId) => profesores.find(p => p.id === profId)?.name || 'Sin asignar';
 
   if (loading) return <LoadingState />;
   if (!currentGym) return <EmptyState icon={Calendar} title="Sin gimnasio" />;
 
   return (
     <div className="space-y-6 animate-fadeIn">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold">Clases</h1>
-          <p className="text-gray-400">{classes.length} clases programadas</p>
+          <p className="text-gray-400">{classes.length} clases</p>
         </div>
-        {isAdmin() && <Button icon={Plus} onClick={() => { setSelected(null); setShowModal(true); }}>Nueva Clase</Button>}
+        {canEdit && <Button icon={Plus} onClick={() => { setSelected(null); setShowModal(true); }}>Nueva Clase</Button>}
       </div>
 
-      {groupedClasses.map(day => (
-        <Card key={day.id}>
-          <h3 className="font-semibold mb-4 flex items-center gap-2">
-            <Calendar size={20} className="text-emerald-500" />{day.name}
-          </h3>
-          {day.classes.length === 0 ? (
-            <p className="text-gray-500 text-center py-4">Sin clases</p>
-          ) : (
-            <div className="space-y-3">
-              {day.classes.map(cls => (
-                <div key={cls.id} className="flex items-center justify-between p-4 bg-gray-800/50 rounded-xl hover:bg-gray-800 transition-colors">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center text-emerald-500">
-                      <Clock size={24} />
-                    </div>
-                    <div>
-                      <h4 className="font-semibold">{cls.name}</h4>
-                      <p className="text-sm text-gray-400">{cls.startTime} - {cls.endTime} • {getProfesorName(cls.profesorId)}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-4">
-                    <div className="text-right">
-                      <span className={`font-semibold ${(cls.enrolledCount || 0) >= cls.capacity ? 'text-red-500' : 'text-emerald-500'}`}>
-                        {cls.enrolledCount || 0}/{cls.capacity}
-                      </span>
-                      <p className="text-xs text-gray-400">cupos</p>
-                    </div>
-                    {isAdmin() && (
-                      <Dropdown trigger={<button className="p-2 hover:bg-gray-700 rounded-lg"><MoreVertical size={18} /></button>}>
-                        <DropdownItem icon={Edit} onClick={() => { setSelected(cls); setShowModal(true); }}>Editar</DropdownItem>
-                        <DropdownItem icon={UserPlus} onClick={() => { setSelected(cls); setShowEnroll(true); }}>Ver Inscriptos</DropdownItem>
-                        <DropdownItem icon={Trash2} danger onClick={() => { setSelected(cls); setShowDelete(true); }}>Eliminar</DropdownItem>
-                      </Dropdown>
-                    )}
+      {classes.length === 0 ? (
+        <EmptyState icon={Calendar} title="No hay clases" action={canEdit && <Button icon={Plus} onClick={() => setShowModal(true)}>Crear</Button>} />
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {classes.map(cls => (
+            <Card key={cls.id}>
+              <div className="flex justify-between items-start mb-3">
+                <div>
+                  <h3 className="font-semibold text-lg">{cls.name}</h3>
+                  <div className="flex items-center gap-2 mt-1 text-sm text-gray-400">
+                    <Calendar size={14} /> {getDayName(cls.dayOfWeek)}
+                    <Clock size={14} className="ml-2" /> {cls.startTime} - {cls.endTime}
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      ))}
+                {canEdit && (
+                  <Dropdown trigger={<button className="p-2 hover:bg-gray-700 rounded-lg"><MoreVertical size={18} /></button>}>
+                    <DropdownItem icon={Edit} onClick={() => { setSelected(cls); setShowModal(true); }}>Editar</DropdownItem>
+                    <DropdownItem icon={Trash2} danger onClick={() => { setSelected(cls); setShowDelete(true); }}>Eliminar</DropdownItem>
+                  </Dropdown>
+                )}
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-400">Profesor: {getProfesorName(cls.profesorId)}</span>
+                <Badge><Users size={12} className="mr-1" />{cls.enrolledCount || 0}/{cls.capacity || '∞'}</Badge>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
 
       <ClassModal isOpen={showModal} onClose={() => { setShowModal(false); setSelected(null); }} onSave={handleSave} classData={selected} profesores={profesores} />
-      <ConfirmDialog isOpen={showDelete} onClose={() => setShowDelete(false)} onConfirm={handleDelete} title="Eliminar" message="¿Eliminar esta clase?" confirmText="Eliminar" />
-      <EnrollModal isOpen={showEnroll} onClose={() => setShowEnroll(false)} classData={selected} gymId={currentGym?.id} />
+      <ConfirmDialog isOpen={showDelete} onClose={() => setShowDelete(false)} onConfirm={handleDelete} title="Eliminar" message={`¿Eliminar "${selected?.name}"?`} confirmText="Eliminar" />
     </div>
   );
 };
 
 const ClassModal = ({ isOpen, onClose, onSave, classData, profesores }) => {
-  const [form, setForm] = useState({ name: '', dayOfWeek: 1, startTime: '08:00', endTime: '09:00', profesorId: '', capacity: 15 });
+  const [form, setForm] = useState({ name: '', dayOfWeek: 1, startTime: '09:00', endTime: '10:00', capacity: '', profesorId: '', description: '' });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    setForm(classData ? { name: classData.name || '', dayOfWeek: classData.dayOfWeek || 1, startTime: classData.startTime || '08:00', endTime: classData.endTime || '09:00', profesorId: classData.profesorId || '', capacity: classData.capacity || 15 } : { name: '', dayOfWeek: 1, startTime: '08:00', endTime: '09:00', profesorId: '', capacity: 15 });
+    if (classData) {
+      setForm({ name: classData.name || '', dayOfWeek: classData.dayOfWeek || 1, startTime: classData.startTime || '09:00', endTime: classData.endTime || '10:00', capacity: classData.capacity || '', profesorId: classData.profesorId || '', description: classData.description || '' });
+    } else {
+      setForm({ name: '', dayOfWeek: 1, startTime: '09:00', endTime: '10:00', capacity: '', profesorId: '', description: '' });
+    }
   }, [classData, isOpen]);
 
   const handleSubmit = async (e) => {
@@ -152,69 +142,21 @@ const ClassModal = ({ isOpen, onClose, onSave, classData, profesores }) => {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={classData ? 'Editar Clase' : 'Nueva Clase'}>
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Input label="Nombre *" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="CrossFit, Funcional..." required />
+        <Input label="Nombre *" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Ej: CrossFit WOD" required />
         <Select label="Día" value={form.dayOfWeek} onChange={e => setForm({ ...form, dayOfWeek: parseInt(e.target.value) })} options={DAYS_OF_WEEK.map(d => ({ value: d.id, label: d.name }))} />
         <div className="grid grid-cols-2 gap-4">
           <Input label="Inicio" type="time" value={form.startTime} onChange={e => setForm({ ...form, startTime: e.target.value })} />
           <Input label="Fin" type="time" value={form.endTime} onChange={e => setForm({ ...form, endTime: e.target.value })} />
         </div>
-        <Select label="Profesor" value={form.profesorId} onChange={e => setForm({ ...form, profesorId: e.target.value })} options={profesores.map(p => ({ value: p.id, label: p.name }))} placeholder="Sin asignar" />
-        <Input label="Capacidad" type="number" value={form.capacity} onChange={e => setForm({ ...form, capacity: parseInt(e.target.value) })} min={1} />
+        <div className="grid grid-cols-2 gap-4">
+          <Input label="Capacidad" type="number" value={form.capacity} onChange={e => setForm({ ...form, capacity: e.target.value })} placeholder="Sin límite" />
+          <Select label="Profesor" value={form.profesorId} onChange={e => setForm({ ...form, profesorId: e.target.value })} options={[{ value: '', label: 'Sin asignar' }, ...profesores.map(p => ({ value: p.id, label: p.name }))]} />
+        </div>
         <div className="flex gap-3 pt-4">
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancelar</Button>
           <Button type="submit" loading={loading} className="flex-1">Guardar</Button>
         </div>
       </form>
-    </Modal>
-  );
-};
-
-const EnrollModal = ({ isOpen, onClose, classData, gymId }) => {
-  const [enrolled, setEnrolled] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!isOpen || !classData?.id) return;
-    const fetchEnrolled = async () => {
-      const q = query(collection(db, 'enrollments'), where('classId', '==', classData.id));
-      const snap = await getDocs(q);
-      const enrollments = snap.docs.map(d => d.data());
-      
-      // Fetch user names
-      const userIds = enrollments.map(e => e.userId);
-      if (userIds.length > 0) {
-        const usersSnap = await getDocs(query(collection(db, 'users'), where('__name__', 'in', userIds.slice(0, 10))));
-        const users = usersSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-        setEnrolled(users);
-      } else {
-        setEnrolled([]);
-      }
-      setLoading(false);
-    };
-    fetchEnrolled();
-  }, [isOpen, classData]);
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title={`Inscriptos - ${classData?.name}`}>
-      {loading ? (
-        <LoadingState />
-      ) : enrolled.length === 0 ? (
-        <p className="text-center text-gray-500 py-8">No hay inscriptos</p>
-      ) : (
-        <div className="space-y-2">
-          {enrolled.map(user => (
-            <div key={user.id} className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-xl">
-              <div className="w-8 h-8 bg-emerald-500/20 rounded-full flex items-center justify-center text-emerald-500 text-sm font-medium">
-                {user.name?.charAt(0)}
-              </div>
-              <div>
-                <p className="font-medium">{user.name}</p>
-                <p className="text-xs text-gray-400">{user.email}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
     </Modal>
   );
 };

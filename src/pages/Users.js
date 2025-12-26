@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { Users, MoreVertical, Edit, Shield, Building2, Crown, Trash2 } from 'lucide-react';
+import { Users, MoreVertical, Edit, Shield, Building2, Crown, Trash2, UserCheck, UserX } from 'lucide-react';
 import { Button, Card, Modal, Input, Select, SearchInput, EmptyState, LoadingState, Badge, Avatar, Dropdown, DropdownItem, ConfirmDialog } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { db } from '../firebase';
 import { collection, query, onSnapshot, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
-import { getRoleName, getRoleColor, formatDate } from '../utils/helpers';
+import { formatDate } from '../utils/helpers';
 
 const UsersPage = () => {
-  const { userData, isSysadmin } = useAuth();
+  const { userData, isSysadmin, canAssignRole, canRemoveRole } = useAuth();
   const { success, error: showError } = useToast();
   
   const [users, setUsers] = useState([]);
@@ -22,13 +22,11 @@ const UsersPage = () => {
   const [selected, setSelected] = useState(null);
 
   useEffect(() => {
-    // Cargar todos los usuarios
     const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
       setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
     });
 
-    // Cargar gimnasios
     const unsubGyms = onSnapshot(collection(db, 'gyms'), (snap) => {
       setGyms(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
@@ -40,7 +38,7 @@ const UsersPage = () => {
     let filtered = users;
     
     if (filterRole !== 'all') {
-      filtered = filtered.filter(u => u.role === filterRole);
+      filtered = filtered.filter(u => u.roles?.includes(filterRole));
     }
     
     if (search) {
@@ -51,9 +49,13 @@ const UsersPage = () => {
       );
     }
     
-    // Ordenar: sysadmin primero, luego admin, profesor, alumno
+    // Ordenar por roles (sysadmin primero)
     const roleOrder = { sysadmin: 0, admin: 1, profesor: 2, alumno: 3 };
-    filtered.sort((a, b) => (roleOrder[a.role] || 4) - (roleOrder[b.role] || 4));
+    filtered.sort((a, b) => {
+      const aTop = Math.min(...(a.roles || ['alumno']).map(r => roleOrder[r] ?? 4));
+      const bTop = Math.min(...(b.roles || ['alumno']).map(r => roleOrder[r] ?? 4));
+      return aTop - bTop;
+    });
     
     return filtered;
   };
@@ -61,7 +63,9 @@ const UsersPage = () => {
   const handleSave = async (data) => {
     try {
       await updateDoc(doc(db, 'users', selected.id), {
-        ...data,
+        roles: data.roles,
+        gymId: data.gymId || null,
+        isActive: data.isActive,
         updatedAt: serverTimestamp()
       });
       success('Usuario actualizado');
@@ -74,7 +78,6 @@ const UsersPage = () => {
 
   const handleDelete = async () => {
     try {
-      // No permitir eliminar al propio usuario
       if (selected.id === userData.id) {
         showError('No podés eliminarte a vos mismo');
         return;
@@ -89,6 +92,30 @@ const UsersPage = () => {
   };
 
   const getGymName = (gymId) => gyms.find(g => g.id === gymId)?.name || 'Sin gimnasio';
+
+  const getRoleBadges = (roles) => {
+    if (!roles || roles.length === 0) return <Badge className="bg-gray-500/20 text-gray-400">Alumno</Badge>;
+    
+    const roleConfig = {
+      sysadmin: { color: 'bg-yellow-500/20 text-yellow-400', icon: '👑' },
+      admin: { color: 'bg-blue-500/20 text-blue-400', icon: '🔧' },
+      profesor: { color: 'bg-purple-500/20 text-purple-400', icon: '👨‍🏫' },
+      alumno: { color: 'bg-gray-500/20 text-gray-400', icon: '👤' }
+    };
+
+    return (
+      <div className="flex flex-wrap gap-1">
+        {roles.filter(r => r !== 'alumno').map(role => (
+          <Badge key={role} className={roleConfig[role]?.color || 'bg-gray-500/20'}>
+            {roleConfig[role]?.icon} {role.charAt(0).toUpperCase() + role.slice(1)}
+          </Badge>
+        ))}
+        {roles.length === 1 && roles[0] === 'alumno' && (
+          <Badge className="bg-gray-500/20 text-gray-400">👤 Alumno</Badge>
+        )}
+      </div>
+    );
+  };
 
   const filteredUsers = getFilteredUsers();
 
@@ -107,7 +134,6 @@ const UsersPage = () => {
         </div>
       </div>
 
-      {/* Filtros */}
       <div className="flex flex-col sm:flex-row gap-4">
         <SearchInput value={search} onChange={setSearch} placeholder="Buscar por nombre o email..." className="flex-1" />
         <Select
@@ -124,7 +150,6 @@ const UsersPage = () => {
         />
       </div>
 
-      {/* Lista de usuarios */}
       {filteredUsers.length === 0 ? (
         <EmptyState icon={Users} title="No hay usuarios" />
       ) : (
@@ -137,13 +162,13 @@ const UsersPage = () => {
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="font-semibold">{user.name}</h3>
-                      {user.role === 'sysadmin' && <Crown size={16} className="text-yellow-500" />}
+                      {user.roles?.includes('sysadmin') && <Crown size={16} className="text-yellow-500" />}
                     </div>
                     <p className="text-sm text-gray-400">{user.email}</p>
-                    <div className="flex items-center gap-2 mt-1">
-                      <Badge className={getRoleColor(user.role)}>{getRoleName(user.role)}</Badge>
-                      {user.id === userData.id && <Badge className="bg-blue-500/20 text-blue-400">Vos</Badge>}
+                    <div className="mt-1">
+                      {getRoleBadges(user.roles)}
                     </div>
+                    {user.id === userData.id && <Badge className="mt-1 bg-blue-500/20 text-blue-400">Vos</Badge>}
                   </div>
                 </div>
                 <Dropdown trigger={<button className="p-2 hover:bg-gray-700 rounded-lg"><MoreVertical size={18} /></button>}>
@@ -160,13 +185,13 @@ const UsersPage = () => {
                   <span>{getGymName(user.gymId)}</span>
                 </div>
                 <p className="text-xs mt-1">Registrado: {formatDate(user.createdAt)}</p>
+                {!user.isActive && <Badge className="mt-1 bg-red-500/20 text-red-400">Inactivo</Badge>}
               </div>
             </Card>
           ))}
         </div>
       )}
 
-      {/* Modal editar usuario */}
       <UserModal 
         isOpen={showModal} 
         onClose={() => { setShowModal(false); setSelected(null); }} 
@@ -174,9 +199,10 @@ const UsersPage = () => {
         user={selected}
         gyms={gyms}
         currentUserId={userData?.id}
+        canAssignRole={canAssignRole}
+        canRemoveRole={canRemoveRole}
       />
 
-      {/* Confirmar eliminar */}
       <ConfirmDialog 
         isOpen={showDelete} 
         onClose={() => setShowDelete(false)} 
@@ -189,14 +215,14 @@ const UsersPage = () => {
   );
 };
 
-const UserModal = ({ isOpen, onClose, onSave, user, gyms, currentUserId }) => {
-  const [form, setForm] = useState({ role: 'alumno', gymId: '', isActive: true });
+const UserModal = ({ isOpen, onClose, onSave, user, gyms, currentUserId, canAssignRole, canRemoveRole }) => {
+  const [form, setForm] = useState({ roles: ['alumno'], gymId: '', isActive: true });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (user) {
       setForm({
-        role: user.role || 'alumno',
+        roles: user.roles || ['alumno'],
         gymId: user.gymId || '',
         isActive: user.isActive !== false
       });
@@ -205,36 +231,83 @@ const UserModal = ({ isOpen, onClose, onSave, user, gyms, currentUserId }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    // Asegurar que siempre tenga al menos alumno
+    const roles = form.roles.length > 0 ? form.roles : ['alumno'];
+    if (!roles.includes('alumno')) roles.push('alumno');
     setLoading(true);
-    await onSave(form);
+    await onSave({ ...form, roles });
     setLoading(false);
+  };
+
+  const toggleRole = (role) => {
+    const hasRole = form.roles.includes(role);
+    
+    if (hasRole) {
+      // Verificar si puede quitar el rol
+      if (!canRemoveRole(role)) return;
+      if (role === 'alumno') return; // No se puede quitar alumno
+      setForm(prev => ({ ...prev, roles: prev.roles.filter(r => r !== role) }));
+    } else {
+      // Verificar si puede asignar el rol
+      if (!canAssignRole(role)) return;
+      setForm(prev => ({ ...prev, roles: [...prev.roles, role] }));
+    }
   };
 
   const isEditingSelf = user?.id === currentUserId;
 
+  const allRoles = [
+    { id: 'sysadmin', name: 'Sysadmin', desc: 'Poder absoluto en toda la app', icon: '👑' },
+    { id: 'admin', name: 'Admin', desc: 'Gestión completa del gimnasio', icon: '🔧' },
+    { id: 'profesor', name: 'Profesor', desc: 'Crear rutinas, WODs, validar PRs', icon: '👨‍🏫' },
+    { id: 'alumno', name: 'Alumno', desc: 'Acceso básico (siempre incluido)', icon: '👤', locked: true },
+  ];
+
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={`Editar: ${user?.name}`}>
+    <Modal isOpen={isOpen} onClose={onClose} title={`Editar: ${user?.name}`} size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="p-3 bg-gray-800/50 rounded-xl">
           <p className="text-sm text-gray-400">Email</p>
           <p className="font-medium">{user?.email}</p>
         </div>
 
-        <Select 
-          label="Rol" 
-          value={form.role} 
-          onChange={e => setForm({ ...form, role: e.target.value })}
-          options={[
-            { value: 'sysadmin', label: '👑 Sysadmin (poder absoluto)' },
-            { value: 'admin', label: '🔧 Administrador' },
-            { value: 'profesor', label: '👨‍🏫 Profesor' },
-            { value: 'alumno', label: '👤 Alumno' }
-          ]}
-          disabled={isEditingSelf}
-        />
-        {isEditingSelf && (
-          <p className="text-xs text-yellow-500">No podés cambiar tu propio rol</p>
-        )}
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">Roles</label>
+          <div className="space-y-2">
+            {allRoles.map(role => {
+              const hasRole = form.roles.includes(role.id);
+              const canToggle = role.locked ? false : (hasRole ? canRemoveRole(role.id) : canAssignRole(role.id));
+              const disabled = isEditingSelf || role.locked || !canToggle;
+
+              return (
+                <label 
+                  key={role.id}
+                  className={`flex items-center gap-3 p-3 rounded-xl transition-colors ${
+                    hasRole ? 'bg-primary/20 border border-primary/50' : 'bg-gray-800/50 border border-gray-700'
+                  } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-700/50'}`}
+                >
+                  <input 
+                    type="checkbox" 
+                    checked={hasRole} 
+                    onChange={() => !disabled && toggleRole(role.id)}
+                    disabled={disabled}
+                    className="w-4 h-4"
+                  />
+                  <div className="flex-1">
+                    <p className="font-medium">{role.icon} {role.name}</p>
+                    <p className="text-xs text-gray-400">{role.desc}</p>
+                  </div>
+                  {!canToggle && !role.locked && (
+                    <span className="text-xs text-gray-500">Sin permiso</span>
+                  )}
+                </label>
+              );
+            })}
+          </div>
+          {isEditingSelf && (
+            <p className="text-xs text-yellow-500 mt-2">No podés modificar tus propios roles</p>
+          )}
+        </div>
 
         <Select 
           label="Gimnasio" 
@@ -247,7 +320,10 @@ const UserModal = ({ isOpen, onClose, onSave, user, gyms, currentUserId }) => {
         />
 
         <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-xl">
-          <span>Usuario Activo</span>
+          <div>
+            <span className="font-medium">Usuario Activo</span>
+            <p className="text-xs text-gray-400">Los usuarios inactivos no pueden acceder</p>
+          </div>
           <button
             type="button"
             onClick={() => !isEditingSelf && setForm({ ...form, isActive: !form.isActive })}

@@ -1,16 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Flame, MoreVertical, Edit, Trash2, Users, User, Eye, Lock, Clock, Zap } from 'lucide-react';
-import { Button, Card, Modal, Input, Select, Textarea, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Dropdown, DropdownItem, Avatar } from '../components/Common';
+import { Plus, Flame, MoreVertical, Edit, Trash2, Users, Lock, Clock, Zap } from 'lucide-react';
+import { Button, Card, Modal, Input, Select, Textarea, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Dropdown, DropdownItem } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { WOD_TYPES, BENCHMARK_WODS } from '../utils/constants';
-import { formatDate } from '../utils/helpers';
 
 const WODs = () => {
-  const { userData, canCreateRoutines, isAlumno, isAdmin, isProfesor } = useAuth();
+  const { userData, canCreateRoutines, isAlumno } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
   
@@ -27,6 +26,8 @@ const WODs = () => {
   const [showView, setShowView] = useState(false);
   const [selected, setSelected] = useState(null);
 
+  const canEdit = canCreateRoutines();
+
   useEffect(() => {
     if (!currentGym?.id) { setLoading(false); return; }
 
@@ -41,7 +42,7 @@ const WODs = () => {
       setClasses(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    if (isAdmin() || isProfesor()) {
+    if (canEdit) {
       const membersQuery = query(collection(db, 'users'), where('gymId', '==', currentGym.id), where('role', '==', 'alumno'));
       const unsubMembers = onSnapshot(membersQuery, (snap) => {
         setMembers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -58,7 +59,7 @@ const WODs = () => {
     }
 
     return () => { unsubWods(); unsubClasses(); };
-  }, [currentGym, userData, isAdmin, isProfesor, isAlumno]);
+  }, [currentGym, userData, canEdit, isAlumno]);
 
   const getVisibleWods = () => {
     let visible = wods;
@@ -72,13 +73,8 @@ const WODs = () => {
       });
     }
 
-    if (filter !== 'all') {
-      visible = visible.filter(w => w.assignmentType === filter);
-    }
-
-    if (search) {
-      visible = visible.filter(w => w.name?.toLowerCase().includes(search.toLowerCase()));
-    }
+    if (filter !== 'all') visible = visible.filter(w => w.assignmentType === filter);
+    if (search) visible = visible.filter(w => w.name?.toLowerCase().includes(search.toLowerCase()));
 
     return visible;
   };
@@ -91,12 +87,7 @@ const WODs = () => {
         await updateDoc(doc(db, 'wods', selected.id), wodData);
         success('WOD actualizado');
       } else {
-        await addDoc(collection(db, 'wods'), {
-          ...wodData,
-          createdBy: userData.id,
-          createdByName: userData.name,
-          createdAt: serverTimestamp()
-        });
+        await addDoc(collection(db, 'wods'), { ...wodData, createdBy: userData.id, createdByName: userData.name, createdAt: serverTimestamp() });
         success('WOD creado');
       }
       setShowModal(false);
@@ -137,30 +128,16 @@ const WODs = () => {
           <h1 className="text-2xl font-bold">WODs</h1>
           <p className="text-gray-400">{visibleWods.length} workouts</p>
         </div>
-        {canCreateRoutines() && (
-          <Button icon={Plus} onClick={() => { setSelected(null); setShowModal(true); }}>
-            Nuevo WOD
-          </Button>
-        )}
+        {canEdit && <Button icon={Plus} onClick={() => { setSelected(null); setShowModal(true); }}>Nuevo WOD</Button>}
       </div>
 
       <div className="flex flex-col sm:flex-row gap-4">
         <SearchInput value={search} onChange={setSearch} placeholder="Buscar WOD..." className="flex-1" />
-        <Select
-          value={filter}
-          onChange={e => setFilter(e.target.value)}
-          options={[
-            { value: 'all', label: 'Todos' },
-            { value: 'general', label: 'Generales' },
-            { value: 'class', label: 'Para Clases' },
-            { value: 'individual', label: 'Individuales' }
-          ]}
-          className="w-full sm:w-48"
-        />
+        <Select value={filter} onChange={e => setFilter(e.target.value)} options={[{ value: 'all', label: 'Todos' }, { value: 'general', label: 'Generales' }, { value: 'class', label: 'Para Clases' }, { value: 'individual', label: 'Individuales' }]} className="w-full sm:w-48" />
       </div>
 
       {visibleWods.length === 0 ? (
-        <EmptyState icon={Flame} title="No hay WODs" action={canCreateRoutines() && <Button icon={Plus} onClick={() => setShowModal(true)}>Crear WOD</Button>} />
+        <EmptyState icon={Flame} title="No hay WODs" action={canEdit && <Button icon={Plus} onClick={() => setShowModal(true)}>Crear WOD</Button>} />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {visibleWods.map(wod => (
@@ -178,7 +155,7 @@ const WODs = () => {
                     </div>
                   </div>
                 </div>
-                {canCreateRoutines() && (
+                {canEdit && (
                   <Dropdown trigger={<button onClick={e => e.stopPropagation()} className="p-2 hover:bg-gray-700 rounded-lg"><MoreVertical size={18} /></button>}>
                     <DropdownItem icon={Edit} onClick={() => { setSelected(wod); setShowModal(true); }}>Editar</DropdownItem>
                     <DropdownItem icon={Trash2} danger onClick={() => { setSelected(wod); setShowDelete(true); }}>Eliminar</DropdownItem>
@@ -212,15 +189,7 @@ const WODModal = ({ isOpen, onClose, onSave, wod, classes, members }) => {
 
   useEffect(() => {
     if (wod) {
-      setForm({
-        name: wod.name || '',
-        type: wod.type || 'for_time',
-        description: wod.description || '',
-        timeLimit: wod.timeLimit || '',
-        assignmentType: wod.assignmentType || 'general',
-        classId: wod.classId || '',
-        memberIds: wod.memberIds || []
-      });
+      setForm({ name: wod.name || '', type: wod.type || 'for_time', description: wod.description || '', timeLimit: wod.timeLimit || '', assignmentType: wod.assignmentType || 'general', classId: wod.classId || '', memberIds: wod.memberIds || [] });
     } else {
       setForm({ name: '', type: 'for_time', description: '', timeLimit: '', assignmentType: 'general', classId: '', memberIds: [] });
     }
@@ -251,9 +220,7 @@ const WODModal = ({ isOpen, onClose, onSave, wod, classes, members }) => {
         <div className="flex gap-2">
           <Input label="Nombre *" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} className="flex-1" required />
           <div className="pt-6">
-            <Button type="button" variant="secondary" size="sm" icon={Zap} onClick={() => setShowBenchmarks(!showBenchmarks)}>
-              Benchmarks
-            </Button>
+            <Button type="button" variant="secondary" size="sm" icon={Zap} onClick={() => setShowBenchmarks(!showBenchmarks)}>Benchmarks</Button>
           </div>
         </div>
 
@@ -275,16 +242,7 @@ const WODModal = ({ isOpen, onClose, onSave, wod, classes, members }) => {
 
         <Textarea label="Descripción / Movimientos *" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={6} placeholder="21-15-9&#10;Thrusters (43/30 kg)&#10;Pull-ups" required />
 
-        <Select 
-          label="Asignar a" 
-          value={form.assignmentType} 
-          onChange={e => setForm({ ...form, assignmentType: e.target.value, classId: '', memberIds: [] })}
-          options={[
-            { value: 'general', label: '🌐 General (todos lo ven)' },
-            { value: 'class', label: '📅 Clase específica' },
-            { value: 'individual', label: '👤 Alumnos específicos' }
-          ]}
-        />
+        <Select label="Asignar a" value={form.assignmentType} onChange={e => setForm({ ...form, assignmentType: e.target.value, classId: '', memberIds: [] })} options={[{ value: 'general', label: '🌐 General (todos lo ven)' }, { value: 'class', label: '📅 Clase específica' }, { value: 'individual', label: '👤 Alumnos específicos' }]} />
 
         {form.assignmentType === 'class' && (
           <Select label="Clase *" value={form.classId} onChange={e => setForm({ ...form, classId: e.target.value })} options={classes.map(c => ({ value: c.id, label: `${c.name} - ${c.dayOfWeek} ${c.startTime}` }))} placeholder="Elegir clase..." />
@@ -295,7 +253,7 @@ const WODModal = ({ isOpen, onClose, onSave, wod, classes, members }) => {
             <label className="block text-sm font-medium text-gray-300 mb-2">Alumnos ({form.memberIds.length})</label>
             <div className="max-h-40 overflow-y-auto space-y-1 p-3 bg-gray-800/50 rounded-xl border border-gray-700">
               {members.map(m => (
-                <label key={m.id} className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer ${form.memberIds.includes(m.id) ? 'bg-primary-20' : 'hover:bg-gray-700'}`}>
+                <label key={m.id} className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer ${form.memberIds.includes(m.id) ? 'bg-primary/20' : 'hover:bg-gray-700'}`}>
                   <input type="checkbox" checked={form.memberIds.includes(m.id)} onChange={() => toggleMember(m.id)} className="w-4 h-4" />
                   <span className="text-sm">{m.name}</span>
                 </label>

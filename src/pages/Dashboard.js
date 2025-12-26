@@ -1,143 +1,287 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Calendar, TrendingUp, Trophy, Clock, CheckCircle, Dumbbell, Flame, Building2 } from 'lucide-react';
+import { Users, Calendar, Dumbbell, TrendingUp, Clock, ChevronRight, Flame, Award, Building2, Mail, UserPlus } from 'lucide-react';
+import { Card, Badge, Avatar, EmptyState, LoadingState, Button } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
-import { Card, StatCard, LoadingState, Badge, Avatar, EmptyState } from '../components/Common';
 import { db } from '../firebase';
-import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
-import { getRoleName } from '../utils/helpers';
+import { collection, query, where, onSnapshot, limit, orderBy } from 'firebase/firestore';
+import { Link } from 'react-router-dom';
+import { getRoleName, getRolesNames, formatRelativeDate, formatDate } from '../utils/helpers';
 
 const Dashboard = () => {
   const { userData, isSysadmin, isAdmin, isProfesor, isAlumno } = useAuth();
-  const { currentGym, gyms } = useGym();
-  const [stats, setStats] = useState({});
+  const { currentGym, availableGyms, selectGym } = useGym();
+  
+  const [stats, setStats] = useState({ members: 0, classes: 0, wods: 0, prs: 0 });
+  const [recentWods, setRecentWods] = useState([]);
+  const [upcomingEvents, setUpcomingEvents] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadDashboardData();
-  }, [userData, currentGym]);
-
-  const loadDashboardData = async () => {
-    if (!userData) return;
-    setLoading(true);
-    try {
-      if (isSysadmin()) {
-        const usersSnap = await getDocs(collection(db, 'users'));
-        const gymsSnap = await getDocs(collection(db, 'gyms'));
-        setStats({
-          totalGyms: gymsSnap.size,
-          totalUsers: usersSnap.size,
-          admins: usersSnap.docs.filter(d => d.data().role === 'admin').length,
-          alumnos: usersSnap.docs.filter(d => d.data().role === 'alumno').length
-        });
-      } else if (currentGym?.id) {
-        const membersSnap = await getDocs(query(collection(db, 'users'), where('gymId', '==', currentGym.id), where('role', '==', 'alumno')));
-        const profesoresSnap = await getDocs(query(collection(db, 'users'), where('gymId', '==', currentGym.id), where('role', '==', 'profesor')));
-        const classesSnap = await getDocs(query(collection(db, 'classes'), where('gymId', '==', currentGym.id)));
-        const prsSnap = await getDocs(query(collection(db, 'personalRecords'), where('gymId', '==', currentGym.id), where('status', '==', 'pending')));
-        setStats({
-          totalMembers: membersSnap.size,
-          totalProfesores: profesoresSnap.size,
-          totalClasses: classesSnap.size,
-          pendingPRs: prsSnap.size
-        });
-      }
-      if (isAlumno() && userData?.id) {
-        const myPRs = await getDocs(query(collection(db, 'personalRecords'), where('userId', '==', userData.id)));
-        const validatedPRs = myPRs.docs.filter(d => d.data().status === 'validated').length;
-        setStats({ totalPRs: myPRs.size, validatedPRs, pendingPRs: myPRs.size - validatedPRs });
-      }
-    } catch (err) {
-      console.error('Error loading dashboard:', err);
+    if (!currentGym?.id) {
+      setLoading(false);
+      return;
     }
+
+    // Cargar estadísticas
+    const membersQuery = query(collection(db, 'users'), where('gymId', '==', currentGym.id));
+    const classesQuery = query(collection(db, 'classes'), where('gymId', '==', currentGym.id));
+    const wodsQuery = query(collection(db, 'wods'), where('gymId', '==', currentGym.id));
+    const prsQuery = query(collection(db, 'prs'), where('gymId', '==', currentGym.id), where('status', '==', 'validated'));
+
+    const unsubs = [];
+
+    unsubs.push(onSnapshot(membersQuery, snap => setStats(prev => ({ ...prev, members: snap.size }))));
+    unsubs.push(onSnapshot(classesQuery, snap => setStats(prev => ({ ...prev, classes: snap.size }))));
+    unsubs.push(onSnapshot(wodsQuery, snap => {
+      setStats(prev => ({ ...prev, wods: snap.size }));
+      const wods = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      wods.sort((a, b) => (b.createdAt?.toDate?.() || 0) - (a.createdAt?.toDate?.() || 0));
+      setRecentWods(wods.slice(0, 3));
+    }));
+    unsubs.push(onSnapshot(prsQuery, snap => setStats(prev => ({ ...prev, prs: snap.size }))));
+
+    // Próximos eventos
+    const eventsQuery = query(collection(db, 'events'), where('gymId', '==', currentGym.id));
+    unsubs.push(onSnapshot(eventsQuery, snap => {
+      const events = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const upcoming = events.filter(e => {
+        const date = e.date?.toDate ? e.date.toDate() : new Date(e.date);
+        return date >= new Date();
+      }).sort((a, b) => {
+        const da = a.date?.toDate ? a.date.toDate() : new Date(a.date);
+        const db = b.date?.toDate ? b.date.toDate() : new Date(b.date);
+        return da - db;
+      });
+      setUpcomingEvents(upcoming.slice(0, 3));
+    }));
+
     setLoading(false);
-  };
 
-  if (loading) return <LoadingState message="Cargando dashboard..." />;
+    return () => unsubs.forEach(u => u());
+  }, [currentGym]);
 
-  if (isSysadmin()) {
+  // Sysadmin sin gimnasio seleccionado
+  if (isSysadmin() && !currentGym) {
     return (
       <div className="space-y-6 animate-fadeIn">
-        <div><h1 className="text-2xl font-bold">Panel de Control</h1><p className="text-gray-400">Bienvenido, {userData?.name}</p></div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard icon={Building2} label="Gimnasios" value={stats.totalGyms || 0} color="emerald" />
-          <StatCard icon={Users} label="Usuarios" value={stats.totalUsers || 0} color="blue" />
-          <StatCard icon={Users} label="Admins" value={stats.admins || 0} color="purple" />
-          <StatCard icon={Users} label="Alumnos" value={stats.alumnos || 0} color="orange" />
+        <div>
+          <h1 className="text-2xl font-bold">Hola, {userData?.name} 👑</h1>
+          <p className="text-gray-400">Panel de Sysadmin</p>
         </div>
-        <Card>
-          <h3 className="font-semibold mb-4">Gimnasios</h3>
-          {gyms.length === 0 ? <p className="text-gray-500 text-center py-4">No hay gimnasios</p> : (
-            <div className="space-y-3">
-              {gyms.map(gym => (
-                <div key={gym.id} className="flex items-center justify-between p-3 bg-gray-800/50 rounded-xl">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-emerald-500/20 rounded-lg flex items-center justify-center"><Building2 className="text-emerald-500" size={20} /></div>
-                    <div><p className="font-medium">{gym.name}</p><p className="text-xs text-gray-400">{gym.address || 'Sin dirección'}</p></div>
-                  </div>
-                  <Badge variant={gym.isActive ? 'success' : 'error'}>{gym.isActive ? 'Activo' : 'Inactivo'}</Badge>
-                </div>
-              ))}
+
+        <Card className="bg-yellow-500/10 border-yellow-500/30">
+          <div className="flex items-center gap-4">
+            <Building2 className="text-yellow-500" size={32} />
+            <div>
+              <h3 className="font-semibold text-yellow-400">Seleccioná un gimnasio</h3>
+              <p className="text-gray-400 text-sm">Como Sysadmin, podés acceder a cualquier gimnasio</p>
             </div>
-          )}
+          </div>
         </Card>
+
+        {availableGyms.length > 0 ? (
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {availableGyms.map(gym => (
+              <Card 
+                key={gym.id} 
+                className="cursor-pointer hover:border-primary transition-colors"
+                onClick={() => selectGym(gym.id)}
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 rounded-xl bg-gray-700 flex items-center justify-center overflow-hidden">
+                    {gym.logo ? (
+                      <img src={gym.logo} alt={gym.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <Building2 className="text-gray-400" size={24} />
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="font-semibold">{gym.name}</h3>
+                    <p className="text-sm text-gray-400">{gym.address || 'Sin dirección'}</p>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <Card>
+            <EmptyState 
+              icon={Building2} 
+              title="No hay gimnasios" 
+              description="Creá el primer gimnasio desde la sección Gimnasios"
+              action={<Link to="/gyms"><Button icon={Building2}>Ir a Gimnasios</Button></Link>}
+            />
+          </Card>
+        )}
       </div>
     );
   }
 
-  if ((isAdmin() || isProfesor()) && !currentGym) {
-    return <EmptyState icon={Building2} title="Sin gimnasio asignado" description="Contactá al administrador" />;
-  }
-
-  if (isAdmin() || isProfesor()) {
+  // Usuario sin gimnasio asignado
+  if (!currentGym) {
     return (
       <div className="space-y-6 animate-fadeIn">
-        <div className="flex justify-between items-start">
-          <div><h1 className="text-2xl font-bold">Dashboard</h1><p className="text-gray-400">{currentGym?.name}</p></div>
-          <Badge variant={isAdmin() ? 'blue' : 'emerald'}>{getRoleName(userData?.role)}</Badge>
+        <div>
+          <h1 className="text-2xl font-bold">Hola, {userData?.name}</h1>
+          <p className="text-gray-400">{getRolesNames(userData?.roles)}</p>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard icon={Users} label="Alumnos" value={stats.totalMembers || 0} color="emerald" />
-          <StatCard icon={Users} label="Profesores" value={stats.totalProfesores || 0} color="blue" />
-          <StatCard icon={Calendar} label="Clases" value={stats.totalClasses || 0} color="purple" />
-          <StatCard icon={Clock} label="PRs Pendientes" value={stats.pendingPRs || 0} color="orange" />
-        </div>
-        <Card className="bg-gradient-to-r from-emerald-500/10 to-blue-500/10 border-emerald-500/20">
-          <h3 className="font-semibold mb-2">Acciones Rápidas</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
-            <a href="/classes" className="p-4 bg-gray-800/50 rounded-xl text-center hover:bg-gray-800 transition-colors"><Calendar className="mx-auto mb-2 text-emerald-500" size={24} /><span className="text-sm">Clases</span></a>
-            <a href="/routines" className="p-4 bg-gray-800/50 rounded-xl text-center hover:bg-gray-800 transition-colors"><Dumbbell className="mx-auto mb-2 text-blue-500" size={24} /><span className="text-sm">Rutinas</span></a>
-            <a href="/wods" className="p-4 bg-gray-800/50 rounded-xl text-center hover:bg-gray-800 transition-colors"><Flame className="mx-auto mb-2 text-orange-500" size={24} /><span className="text-sm">WODs</span></a>
-            <a href="/prs" className="p-4 bg-gray-800/50 rounded-xl text-center hover:bg-gray-800 transition-colors"><TrendingUp className="mx-auto mb-2 text-purple-500" size={24} /><span className="text-sm">Validar PRs</span></a>
+
+        <Card className="bg-blue-500/10 border-blue-500/30">
+          <div className="flex flex-col items-center text-center py-8">
+            <div className="w-20 h-20 rounded-full bg-blue-500/20 flex items-center justify-center mb-4">
+              <Building2 className="text-blue-400" size={40} />
+            </div>
+            <h3 className="text-xl font-semibold text-blue-400 mb-2">Sin gimnasio asignado</h3>
+            <p className="text-gray-400 mb-6 max-w-md">
+              Todavía no estás asociado a ningún gimnasio. Necesitás una invitación de un 
+              gimnasio para poder acceder a todas las funciones.
+            </p>
+            <div className="flex flex-col gap-3 text-sm text-gray-500">
+              <div className="flex items-center gap-2">
+                <Mail size={16} />
+                <span>Pedile al administrador de tu gimnasio que te envíe una invitación</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <UserPlus size={16} />
+                <span>O usá un link de invitación si ya tenés uno</span>
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <h3 className="font-semibold mb-4">Tu cuenta</h3>
+          <div className="flex items-center gap-4">
+            <Avatar name={userData?.name} size="lg" />
+            <div>
+              <p className="font-medium">{userData?.name}</p>
+              <p className="text-sm text-gray-400">{userData?.email}</p>
+              <div className="mt-1">
+                {userData?.roles?.map(role => (
+                  <Badge key={role} className="mr-1 bg-gray-500/20 text-gray-400">
+                    {getRoleName(role)}
+                  </Badge>
+                ))}
+              </div>
+            </div>
           </div>
         </Card>
       </div>
     );
   }
 
-  // Dashboard Alumno
-  if (!currentGym) {
-    return <EmptyState icon={Building2} title="Sin gimnasio asignado" description="Contactá al administrador para ser asignado a un gimnasio" />;
-  }
+  // Dashboard normal con gimnasio
+  if (loading) return <LoadingState />;
 
   return (
     <div className="space-y-6 animate-fadeIn">
-      <div><h1 className="text-2xl font-bold">¡Hola, {userData?.name?.split(' ')[0]}!</h1><p className="text-gray-400">{currentGym?.name}</p></div>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard icon={Trophy} label="Mis PRs" value={stats.totalPRs || 0} color="emerald" />
-        <StatCard icon={CheckCircle} label="Validados" value={stats.validatedPRs || 0} color="blue" />
-        <StatCard icon={Clock} label="Pendientes" value={stats.pendingPRs || 0} color="orange" />
-      </div>
-      <Card className="bg-gradient-to-r from-emerald-500/10 to-blue-500/10 border-emerald-500/20">
-        <h3 className="font-semibold mb-2">Acciones Rápidas</h3>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
-          <a href="/schedule" className="p-4 bg-gray-800/50 rounded-xl text-center hover:bg-gray-800 transition-colors"><Calendar className="mx-auto mb-2 text-emerald-500" size={24} /><span className="text-sm">Horarios</span></a>
-          <a href="/my-routines" className="p-4 bg-gray-800/50 rounded-xl text-center hover:bg-gray-800 transition-colors"><Dumbbell className="mx-auto mb-2 text-blue-500" size={24} /><span className="text-sm">Mis Rutinas</span></a>
-          <a href="/my-prs" className="p-4 bg-gray-800/50 rounded-xl text-center hover:bg-gray-800 transition-colors"><TrendingUp className="mx-auto mb-2 text-purple-500" size={24} /><span className="text-sm">Mis PRs</span></a>
-          <a href="/rankings" className="p-4 bg-gray-800/50 rounded-xl text-center hover:bg-gray-800 transition-colors"><Trophy className="mx-auto mb-2 text-yellow-500" size={24} /><span className="text-sm">Rankings</span></a>
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Hola, {userData?.name}</h1>
+          <p className="text-gray-400">{currentGym?.name}</p>
         </div>
-      </Card>
+        <div className="flex items-center gap-2">
+          {userData?.roles?.filter(r => r !== 'alumno').map(role => (
+            <Badge key={role} className={
+              role === 'sysadmin' ? 'bg-yellow-500/20 text-yellow-400' :
+              role === 'admin' ? 'bg-blue-500/20 text-blue-400' :
+              'bg-purple-500/20 text-purple-400'
+            }>
+              {getRoleName(role)}
+            </Badge>
+          ))}
+        </div>
+      </div>
+
+      {/* Stats */}
+      {(isAdmin() || isProfesor()) && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard icon={Users} label="Miembros" value={stats.members} color="blue" />
+          <StatCard icon={Calendar} label="Clases" value={stats.classes} color="green" />
+          <StatCard icon={Flame} label="WODs" value={stats.wods} color="orange" />
+          <StatCard icon={Award} label="PRs Validados" value={stats.prs} color="purple" />
+        </div>
+      )}
+
+      <div className="grid lg:grid-cols-2 gap-6">
+        {/* WODs Recientes */}
+        <Card>
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-semibold">WODs Recientes</h3>
+            <Link to="/wods" className="text-primary text-sm hover:underline flex items-center gap-1">
+              Ver todos <ChevronRight size={16} />
+            </Link>
+          </div>
+          {recentWods.length === 0 ? (
+            <p className="text-gray-500 text-center py-4">No hay WODs</p>
+          ) : (
+            <div className="space-y-3">
+              {recentWods.map(wod => (
+                <div key={wod.id} className="flex items-center gap-4 p-3 bg-gray-800/50 rounded-xl">
+                  <div className="w-10 h-10 bg-orange-500/20 rounded-lg flex items-center justify-center">
+                    <Flame className="text-orange-500" size={20} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{wod.name}</p>
+                    <p className="text-xs text-gray-500">{formatRelativeDate(wod.createdAt)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        {/* Próximos Eventos */}
+        <Card>
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="font-semibold">Próximos Eventos</h3>
+            <Link to="/calendar" className="text-primary text-sm hover:underline flex items-center gap-1">
+              Ver calendario <ChevronRight size={16} />
+            </Link>
+          </div>
+          {upcomingEvents.length === 0 ? (
+            <p className="text-gray-500 text-center py-4">No hay eventos próximos</p>
+          ) : (
+            <div className="space-y-3">
+              {upcomingEvents.map(event => (
+                <div key={event.id} className="flex items-center gap-4 p-3 bg-gray-800/50 rounded-xl">
+                  <div className="w-10 h-10 bg-primary/20 rounded-lg flex items-center justify-center">
+                    <Calendar className="text-primary" size={20} />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-medium">{event.title}</p>
+                    <p className="text-xs text-gray-500">{formatDate(event.date)} {event.time && `• ${event.time}`}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
     </div>
+  );
+};
+
+const StatCard = ({ icon: Icon, label, value, color }) => {
+  const colors = {
+    blue: 'bg-blue-500/20 text-blue-500',
+    green: 'bg-green-500/20 text-green-500',
+    orange: 'bg-orange-500/20 text-orange-500',
+    purple: 'bg-purple-500/20 text-purple-500',
+  };
+
+  return (
+    <Card className="flex items-center gap-4">
+      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${colors[color]}`}>
+        <Icon size={24} />
+      </div>
+      <div>
+        <p className="text-2xl font-bold">{value}</p>
+        <p className="text-sm text-gray-400">{label}</p>
+      </div>
+    </Card>
   );
 };
 

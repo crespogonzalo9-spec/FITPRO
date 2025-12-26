@@ -9,7 +9,7 @@ import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc
 import { formatDate } from '../utils/helpers';
 
 const Calendar = () => {
-  const { userData, isAdmin } = useAuth();
+  const { canManageCalendar } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
   
@@ -21,65 +21,42 @@ const Calendar = () => {
   const [selected, setSelected] = useState(null);
   const [selectedDate, setSelectedDate] = useState(null);
 
-  // Solo Admin puede editar el calendario
-  const canEdit = isAdmin();
+  const canEdit = canManageCalendar();
 
   useEffect(() => {
     if (!currentGym?.id) { setLoading(false); return; }
-
     const q = query(collection(db, 'events'), where('gymId', '==', currentGym.id));
     const unsubscribe = onSnapshot(q, (snap) => {
       setEvents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
     });
-
     return () => unsubscribe();
   }, [currentGym]);
 
-  // Generar días del mes
   const getDaysInMonth = (date) => {
     const year = date.getFullYear();
     const month = date.getMonth();
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
     const startingDay = firstDay.getDay();
-    
     const days = [];
-    
-    // Días del mes anterior
-    for (let i = startingDay - 1; i >= 0; i--) {
-      days.push({ date: new Date(year, month, -i), isCurrentMonth: false });
-    }
-    
-    // Días del mes actual
-    for (let i = 1; i <= lastDay.getDate(); i++) {
-      days.push({ date: new Date(year, month, i), isCurrentMonth: true });
-    }
-    
-    // Completar hasta 42 (6 semanas)
+    for (let i = startingDay - 1; i >= 0; i--) days.push({ date: new Date(year, month, -i), isCurrentMonth: false });
+    for (let i = 1; i <= lastDay.getDate(); i++) days.push({ date: new Date(year, month, i), isCurrentMonth: true });
     while (days.length < 42) {
       const nextDay = days.length - lastDay.getDate() - startingDay + 1;
       days.push({ date: new Date(year, month + 1, nextDay), isCurrentMonth: false });
     }
-    
     return days;
   };
 
-  const getEventsForDate = (date) => {
-    return events.filter(e => {
-      const eventDate = e.date?.toDate ? e.date.toDate() : new Date(e.date);
-      return eventDate.toDateString() === date.toDateString();
-    });
-  };
+  const getEventsForDate = (date) => events.filter(e => {
+    const eventDate = e.date?.toDate ? e.date.toDate() : new Date(e.date);
+    return eventDate.toDateString() === date.toDateString();
+  });
 
   const handleSave = async (data) => {
     try {
-      const eventData = {
-        ...data,
-        gymId: currentGym.id,
-        updatedAt: serverTimestamp()
-      };
-
+      const eventData = { ...data, gymId: currentGym.id, updatedAt: serverTimestamp() };
       if (selected?.id) {
         await updateDoc(doc(db, 'events', selected.id), eventData);
         success('Evento actualizado');
@@ -87,7 +64,6 @@ const Calendar = () => {
         await addDoc(collection(db, 'events'), { ...eventData, createdAt: serverTimestamp() });
         success('Evento creado');
       }
-      
       setShowModal(false);
       setSelected(null);
       setSelectedDate(null);
@@ -117,9 +93,7 @@ const Calendar = () => {
   const handleEventClick = (e, event) => {
     e.stopPropagation();
     setSelected(event);
-    if (canEdit) {
-      setShowModal(true);
-    }
+    if (canEdit) setShowModal(true);
   };
 
   const days = getDaysInMonth(currentDate);
@@ -127,27 +101,11 @@ const Calendar = () => {
   const dayNames = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
   const getEventColor = (type) => {
-    const colors = {
-      competition: 'bg-red-500/20 text-red-400 border-red-500/30',
-      special: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
-      holiday: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-      class: 'bg-blue-500/20 text-blue-400 border-blue-500/30'
-    };
+    const colors = { competition: 'bg-red-500/20 text-red-400 border-red-500/30', special: 'bg-purple-500/20 text-purple-400 border-purple-500/30', holiday: 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30', class: 'bg-blue-500/20 text-blue-400 border-blue-500/30' };
     return colors[type] || 'bg-primary-20 text-primary border-primary-30';
   };
 
-  // Próximos eventos
-  const upcomingEvents = events
-    .filter(e => {
-      const d = e.date?.toDate ? e.date.toDate() : new Date(e.date);
-      return d >= new Date();
-    })
-    .sort((a, b) => {
-      const da = a.date?.toDate ? a.date.toDate() : new Date(a.date);
-      const db = b.date?.toDate ? b.date.toDate() : new Date(b.date);
-      return da - db;
-    })
-    .slice(0, 5);
+  const upcomingEvents = events.filter(e => { const d = e.date?.toDate ? e.date.toDate() : new Date(e.date); return d >= new Date(); }).sort((a, b) => { const da = a.date?.toDate ? a.date.toDate() : new Date(a.date); const db = b.date?.toDate ? b.date.toDate() : new Date(b.date); return da - db; }).slice(0, 5);
 
   if (loading) return <LoadingState />;
   if (!currentGym) return <EmptyState icon={CalendarDays} title="Sin gimnasio" />;
@@ -159,91 +117,39 @@ const Calendar = () => {
           <h1 className="text-2xl font-bold">Calendario</h1>
           <p className="text-gray-400">Eventos y actividades del gimnasio</p>
         </div>
-        {canEdit && (
-          <Button icon={Plus} onClick={() => { setSelected(null); setSelectedDate(new Date()); setShowModal(true); }}>
-            Nuevo Evento
-          </Button>
-        )}
+        {canEdit && <Button icon={Plus} onClick={() => { setSelected(null); setSelectedDate(new Date()); setShowModal(true); }}>Nuevo Evento</Button>}
       </div>
 
-      {/* Calendario */}
       <Card>
-        {/* Header navegación */}
         <div className="flex items-center justify-between mb-6">
-          <button 
-            onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1))} 
-            className="p-2 hover:bg-gray-700 rounded-lg"
-          >
-            <ChevronLeft size={20} />
-          </button>
-          <h2 className="text-xl font-semibold">
-            {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
-          </h2>
-          <button 
-            onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1))} 
-            className="p-2 hover:bg-gray-700 rounded-lg"
-          >
-            <ChevronRight size={20} />
-          </button>
+          <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() - 1))} className="p-2 hover:bg-gray-700 rounded-lg"><ChevronLeft size={20} /></button>
+          <h2 className="text-xl font-semibold">{monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}</h2>
+          <button onClick={() => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1))} className="p-2 hover:bg-gray-700 rounded-lg"><ChevronRight size={20} /></button>
         </div>
 
-        {/* Días de la semana */}
         <div className="grid grid-cols-7 gap-1 mb-2">
-          {dayNames.map(day => (
-            <div key={day} className="text-center text-sm font-medium text-gray-400 py-2">{day}</div>
-          ))}
+          {dayNames.map(day => <div key={day} className="text-center text-sm font-medium text-gray-400 py-2">{day}</div>)}
         </div>
 
-        {/* Grid de días */}
         <div className="grid grid-cols-7 gap-1">
           {days.map((day, idx) => {
             const dayEvents = getEventsForDate(day.date);
             const isToday = day.date.toDateString() === new Date().toDateString();
-            
             return (
-              <div
-                key={idx}
-                onClick={() => handleDayClick(day)}
-                className={`min-h-20 sm:min-h-24 p-1 sm:p-2 rounded-lg border transition-colors ${
-                  day.isCurrentMonth 
-                    ? 'bg-gray-800/50 border-gray-700' 
-                    : 'bg-gray-900/30 border-gray-800 text-gray-600'
-                } ${canEdit ? 'cursor-pointer hover:border-gray-600' : ''} ${
-                  isToday ? 'ring-2 ring-primary ring-offset-1 ring-offset-slate-900' : ''
-                }`}
-              >
-                <span className={`text-sm font-medium ${isToday ? 'text-primary' : ''}`}>
-                  {day.date.getDate()}
-                </span>
+              <div key={idx} onClick={() => handleDayClick(day)} className={`min-h-20 sm:min-h-24 p-1 sm:p-2 rounded-lg border transition-colors ${day.isCurrentMonth ? 'bg-gray-800/50 border-gray-700' : 'bg-gray-900/30 border-gray-800 text-gray-600'} ${canEdit ? 'cursor-pointer hover:border-gray-600' : ''} ${isToday ? 'ring-2 ring-primary ring-offset-1 ring-offset-slate-900' : ''}`}>
+                <span className={`text-sm font-medium ${isToday ? 'text-primary' : ''}`}>{day.date.getDate()}</span>
                 <div className="mt-1 space-y-1">
                   {dayEvents.slice(0, 2).map(event => (
-                    <div
-                      key={event.id}
-                      onClick={(e) => handleEventClick(e, event)}
-                      className={`text-xs p-1 rounded truncate cursor-pointer border ${getEventColor(event.type)}`}
-                    >
-                      {event.title}
-                    </div>
+                    <div key={event.id} onClick={(e) => handleEventClick(e, event)} className={`text-xs p-1 rounded truncate cursor-pointer border ${getEventColor(event.type)}`}>{event.title}</div>
                   ))}
-                  {dayEvents.length > 2 && (
-                    <div className="text-xs text-gray-400 pl-1">+{dayEvents.length - 2} más</div>
-                  )}
+                  {dayEvents.length > 2 && <div className="text-xs text-gray-400 pl-1">+{dayEvents.length - 2} más</div>}
                 </div>
               </div>
             );
           })}
         </div>
-
-        {/* Leyenda */}
-        <div className="flex flex-wrap gap-3 mt-4 pt-4 border-t border-gray-700">
-          <span className="flex items-center gap-1 text-xs"><span className="w-3 h-3 rounded bg-primary-20"></span> Normal</span>
-          <span className="flex items-center gap-1 text-xs"><span className="w-3 h-3 rounded bg-red-500/20"></span> Competencia</span>
-          <span className="flex items-center gap-1 text-xs"><span className="w-3 h-3 rounded bg-purple-500/20"></span> Especial</span>
-          <span className="flex items-center gap-1 text-xs"><span className="w-3 h-3 rounded bg-yellow-500/20"></span> Feriado</span>
-        </div>
       </Card>
 
-      {/* Próximos eventos */}
       <Card>
         <h3 className="font-semibold mb-4">Próximos Eventos</h3>
         {upcomingEvents.length === 0 ? (
@@ -253,15 +159,12 @@ const Calendar = () => {
             {upcomingEvents.map(event => (
               <div key={event.id} className="flex items-center justify-between p-3 bg-gray-800/50 rounded-xl">
                 <div className="flex items-center gap-4">
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${getEventColor(event.type)}`}>
-                    <CalendarDays size={24} />
-                  </div>
+                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${getEventColor(event.type)}`}><CalendarDays size={24} /></div>
                   <div>
                     <h4 className="font-medium">{event.title}</h4>
                     <div className="flex items-center gap-3 text-sm text-gray-400">
                       <span>{formatDate(event.date)}</span>
                       {event.time && <span className="flex items-center gap-1"><Clock size={12} />{event.time}</span>}
-                      {event.location && <span className="flex items-center gap-1"><MapPin size={12} />{event.location}</span>}
                     </div>
                   </div>
                 </div>
@@ -277,59 +180,22 @@ const Calendar = () => {
         )}
       </Card>
 
-      {/* Modal evento */}
-      <EventModal 
-        isOpen={showModal} 
-        onClose={() => { setShowModal(false); setSelected(null); setSelectedDate(null); }} 
-        onSave={handleSave} 
-        event={selected} 
-        defaultDate={selectedDate} 
-      />
-      
-      {/* Confirmar eliminar */}
-      <ConfirmDialog 
-        isOpen={showDelete} 
-        onClose={() => setShowDelete(false)} 
-        onConfirm={handleDelete} 
-        title="Eliminar Evento" 
-        message={`¿Eliminar "${selected?.title}"?`}
-        confirmText="Eliminar" 
-      />
+      <EventModal isOpen={showModal} onClose={() => { setShowModal(false); setSelected(null); setSelectedDate(null); }} onSave={handleSave} event={selected} defaultDate={selectedDate} />
+      <ConfirmDialog isOpen={showDelete} onClose={() => setShowDelete(false)} onConfirm={handleDelete} title="Eliminar Evento" message={`¿Eliminar "${selected?.title}"?`} confirmText="Eliminar" />
     </div>
   );
 };
 
 const EventModal = ({ isOpen, onClose, onSave, event, defaultDate }) => {
-  const [form, setForm] = useState({ 
-    title: '', 
-    description: '', 
-    date: '', 
-    time: '', 
-    location: '', 
-    type: 'class' 
-  });
+  const [form, setForm] = useState({ title: '', description: '', date: '', time: '', location: '', type: 'class' });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (event) {
       const eventDate = event.date?.toDate ? event.date.toDate() : new Date(event.date);
-      setForm({
-        title: event.title || '',
-        description: event.description || '',
-        date: eventDate.toISOString().split('T')[0],
-        time: event.time || '',
-        location: event.location || '',
-        type: event.type || 'class'
-      });
+      setForm({ title: event.title || '', description: event.description || '', date: eventDate.toISOString().split('T')[0], time: event.time || '', location: event.location || '', type: event.type || 'class' });
     } else if (defaultDate) {
-      setForm({
-        title: '',
-        description: '',
-        date: defaultDate.toISOString().split('T')[0],
-        time: '',
-        location: '',
-        type: 'class'
-      });
+      setForm({ title: '', description: '', date: defaultDate.toISOString().split('T')[0], time: '', location: '', type: 'class' });
     }
   }, [event, defaultDate, isOpen]);
 
@@ -344,57 +210,14 @@ const EventModal = ({ isOpen, onClose, onSave, event, defaultDate }) => {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={event ? 'Editar Evento' : 'Nuevo Evento'}>
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Input 
-          label="Título *" 
-          value={form.title} 
-          onChange={e => setForm({ ...form, title: e.target.value })} 
-          placeholder="Nombre del evento"
-          required 
-        />
-        
+        <Input label="Título *" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Nombre del evento" required />
         <div className="grid grid-cols-2 gap-4">
-          <Input 
-            label="Fecha *" 
-            type="date" 
-            value={form.date} 
-            onChange={e => setForm({ ...form, date: e.target.value })} 
-            required 
-          />
-          <Input 
-            label="Hora" 
-            type="time" 
-            value={form.time} 
-            onChange={e => setForm({ ...form, time: e.target.value })} 
-          />
+          <Input label="Fecha *" type="date" value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} required />
+          <Input label="Hora" type="time" value={form.time} onChange={e => setForm({ ...form, time: e.target.value })} />
         </div>
-        
-        <Select 
-          label="Tipo de evento" 
-          value={form.type} 
-          onChange={e => setForm({ ...form, type: e.target.value })}
-          options={[
-            { value: 'class', label: '📅 Clase Especial' },
-            { value: 'competition', label: '🏆 Competencia' },
-            { value: 'special', label: '⭐ Evento Especial' },
-            { value: 'holiday', label: '🚫 Feriado / Cierre' }
-          ]}
-        />
-        
-        <Input 
-          label="Ubicación" 
-          value={form.location} 
-          onChange={e => setForm({ ...form, location: e.target.value })} 
-          placeholder="Ej: Sala principal, Exterior..."
-        />
-        
-        <Textarea 
-          label="Descripción" 
-          value={form.description} 
-          onChange={e => setForm({ ...form, description: e.target.value })} 
-          rows={3}
-          placeholder="Detalles del evento..."
-        />
-        
+        <Select label="Tipo de evento" value={form.type} onChange={e => setForm({ ...form, type: e.target.value })} options={[{ value: 'class', label: '📅 Clase Especial' }, { value: 'competition', label: '🏆 Competencia' }, { value: 'special', label: '⭐ Evento Especial' }, { value: 'holiday', label: '🚫 Feriado / Cierre' }]} />
+        <Input label="Ubicación" value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} placeholder="Ej: Sala principal" />
+        <Textarea label="Descripción" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} rows={3} />
         <div className="flex gap-3 pt-4">
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancelar</Button>
           <Button type="submit" loading={loading} className="flex-1">Guardar</Button>

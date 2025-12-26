@@ -5,12 +5,12 @@ import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
 import { db } from '../firebase';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { formatRelativeDate } from '../utils/helpers';
 import { compressAndConvertToBase64 } from '../utils/imageUtils';
 
 const News = () => {
-  const { userData, isAdmin } = useAuth();
+  const { userData, canManageNews } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
   
@@ -20,19 +20,14 @@ const News = () => {
   const [showDelete, setShowDelete] = useState(false);
   const [selected, setSelected] = useState(null);
 
-  const canPublish = isAdmin();
+  const canEdit = canManageNews();
 
   useEffect(() => {
     if (!currentGym?.id) { setLoading(false); return; }
 
-    const q = query(
-      collection(db, 'news'),
-      where('gymId', '==', currentGym.id)
-    );
-    
+    const q = query(collection(db, 'news'), where('gymId', '==', currentGym.id));
     const unsubscribe = onSnapshot(q, (snap) => {
       const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // Ordenar por fecha de creación (más reciente primero)
       items.sort((a, b) => {
         const dateA = a.createdAt?.toDate?.() || new Date(0);
         const dateB = b.createdAt?.toDate?.() || new Date(0);
@@ -59,16 +54,10 @@ const News = () => {
       };
 
       if (selected?.id) {
-        await updateDoc(doc(db, 'news', selected.id), { 
-          ...newsData, 
-          updatedAt: serverTimestamp() 
-        });
+        await updateDoc(doc(db, 'news', selected.id), { ...newsData, updatedAt: serverTimestamp() });
         success('Novedad actualizada');
       } else {
-        await addDoc(collection(db, 'news'), { 
-          ...newsData, 
-          createdAt: serverTimestamp() 
-        });
+        await addDoc(collection(db, 'news'), { ...newsData, createdAt: serverTimestamp() });
         success('Novedad publicada');
       }
 
@@ -95,14 +84,9 @@ const News = () => {
     if (!text) return null;
     const urlRegex = /(https?:\/\/[^\s]+)/g;
     const parts = text.split(urlRegex);
-    
     return parts.map((part, i) => {
       if (part.match(urlRegex)) {
-        return (
-          <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline break-all">
-            {part}
-          </a>
-        );
+        return <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline break-all">{part}</a>;
       }
       return part;
     });
@@ -118,25 +102,15 @@ const News = () => {
           <h1 className="text-2xl font-bold">Novedades</h1>
           <p className="text-gray-400">{news.length} publicaciones</p>
         </div>
-        {canPublish && (
-          <Button icon={Plus} onClick={() => { setSelected(null); setShowModal(true); }}>
-            Nueva Publicación
-          </Button>
-        )}
+        {canEdit && <Button icon={Plus} onClick={() => { setSelected(null); setShowModal(true); }}>Nueva Publicación</Button>}
       </div>
 
       {news.length === 0 ? (
-        <EmptyState 
-          icon={Megaphone} 
-          title="Sin novedades" 
-          description="Aún no hay publicaciones"
-          action={canPublish && <Button icon={Plus} onClick={() => setShowModal(true)}>Publicar</Button>}
-        />
+        <EmptyState icon={Megaphone} title="Sin novedades" description="Aún no hay publicaciones" action={canEdit && <Button icon={Plus} onClick={() => setShowModal(true)}>Publicar</Button>} />
       ) : (
         <div className="space-y-4">
           {news.map(item => (
             <Card key={item.id}>
-              {/* Header */}
               <div className="flex justify-between items-start mb-3">
                 <div className="flex items-center gap-3">
                   <Avatar name={item.authorName} size="md" />
@@ -145,7 +119,7 @@ const News = () => {
                     <p className="text-xs text-gray-400">{formatRelativeDate(item.createdAt)}</p>
                   </div>
                 </div>
-                {canPublish && (
+                {canEdit && (
                   <Dropdown trigger={<button className="p-2 hover:bg-gray-700 rounded-lg"><MoreVertical size={18} /></button>}>
                     <DropdownItem icon={Edit} onClick={() => { setSelected(item); setShowModal(true); }}>Editar</DropdownItem>
                     <DropdownItem icon={Trash2} danger onClick={() => { setSelected(item); setShowDelete(true); }}>Eliminar</DropdownItem>
@@ -153,27 +127,16 @@ const News = () => {
                 )}
               </div>
 
-              {/* Título */}
               <h3 className="text-lg font-semibold mb-2">{item.title}</h3>
-              
-              {/* Cuerpo */}
               <p className="text-gray-300 whitespace-pre-wrap mb-3">{renderTextWithLinks(item.body)}</p>
 
-              {/* Link destacado */}
               {item.link && (
-                <a 
-                  href={item.link} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-primary/20 rounded-xl hover:bg-primary/30 transition-colors mb-3"
-                  style={{ color: 'rgba(var(--color-primary), 1)' }}
-                >
+                <a href={item.link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-4 py-2 bg-primary/20 rounded-xl hover:bg-primary/30 transition-colors mb-3" style={{ color: 'rgba(var(--color-primary), 1)' }}>
                   <ExternalLink size={16} />
                   {item.linkText || 'Ver más'}
                 </a>
               )}
 
-              {/* Imagen */}
               {item.imageBase64 && (
                 <div className="rounded-xl overflow-hidden">
                   <img src={item.imageBase64} alt={item.title} className="w-full max-h-96 object-cover" />
@@ -184,20 +147,8 @@ const News = () => {
         </div>
       )}
 
-      <NewsModal 
-        isOpen={showModal} 
-        onClose={() => { setShowModal(false); setSelected(null); }} 
-        onSave={handleSave} 
-        news={selected} 
-      />
-      <ConfirmDialog 
-        isOpen={showDelete} 
-        onClose={() => setShowDelete(false)} 
-        onConfirm={handleDelete} 
-        title="Eliminar" 
-        message="¿Eliminar esta publicación?" 
-        confirmText="Eliminar" 
-      />
+      <NewsModal isOpen={showModal} onClose={() => { setShowModal(false); setSelected(null); }} onSave={handleSave} news={selected} />
+      <ConfirmDialog isOpen={showDelete} onClose={() => setShowDelete(false)} onConfirm={handleDelete} title="Eliminar" message="¿Eliminar esta publicación?" confirmText="Eliminar" />
     </div>
   );
 };
@@ -210,13 +161,7 @@ const NewsModal = ({ isOpen, onClose, onSave, news }) => {
 
   useEffect(() => {
     if (news) {
-      setForm({ 
-        title: news.title || '', 
-        body: news.body || '', 
-        link: news.link || '',
-        linkText: news.linkText || '',
-        imageBase64: news.imageBase64 || '' 
-      });
+      setForm({ title: news.title || '', body: news.body || '', link: news.link || '', linkText: news.linkText || '', imageBase64: news.imageBase64 || '' });
       setImagePreview(news.imageBase64 || null);
     } else {
       setForm({ title: '', body: '', link: '', linkText: '', imageBase64: '' });
@@ -227,15 +172,11 @@ const NewsModal = ({ isOpen, onClose, onSave, news }) => {
   const handleImageChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      alert('Solo se permiten imágenes');
-      return;
-    }
+    if (!file.type.startsWith('image/')) { alert('Solo se permiten imágenes'); return; }
 
     setUploadingImage(true);
     try {
-      const base64 = await compressAndConvertToBase64(file, 600, 0.7);
+      const base64 = await compressAndConvertToBase64(file, 800, 0.8);
       setForm(prev => ({ ...prev, imageBase64: base64 }));
       setImagePreview(base64);
     } catch (err) {
@@ -260,42 +201,18 @@ const NewsModal = ({ isOpen, onClose, onSave, news }) => {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={news ? 'Editar Publicación' : 'Nueva Publicación'} size="lg">
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Input 
-          label="Título *" 
-          value={form.title} 
-          onChange={e => setForm({ ...form, title: e.target.value })} 
-          placeholder="Título de la novedad"
-          required 
-        />
-        
-        <Textarea 
-          label="Contenido *" 
-          value={form.body} 
-          onChange={e => setForm({ ...form, body: e.target.value })} 
-          rows={5}
-          placeholder="Escribe el contenido..."
-          required
-        />
+        <Input label="Título *" value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder="Título de la novedad" required />
+        <Textarea label="Contenido *" value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} rows={5} placeholder="Escribe el contenido..." required />
 
-        {/* Link destacado */}
         <div className="p-3 bg-gray-800/50 rounded-xl space-y-3">
           <div className="flex items-center gap-2 text-sm text-gray-400">
             <LinkIcon size={16} />
             <span>Enlace destacado (opcional)</span>
           </div>
-          <Input 
-            value={form.link} 
-            onChange={e => setForm({ ...form, link: e.target.value })} 
-            placeholder="https://ejemplo.com"
-          />
-          <Input 
-            value={form.linkText} 
-            onChange={e => setForm({ ...form, linkText: e.target.value })} 
-            placeholder="Texto del botón (ej: Inscribirse)"
-          />
+          <Input value={form.link} onChange={e => setForm({ ...form, link: e.target.value })} placeholder="https://ejemplo.com" />
+          <Input value={form.linkText} onChange={e => setForm({ ...form, linkText: e.target.value })} placeholder="Texto del botón (ej: Inscribirse)" />
         </div>
 
-        {/* Imagen */}
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">Imagen (opcional)</label>
           <div className="flex items-center gap-4">
@@ -305,11 +222,7 @@ const NewsModal = ({ isOpen, onClose, onSave, news }) => {
               <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" disabled={uploadingImage} />
             </label>
             {imagePreview && (
-              <button 
-                type="button" 
-                onClick={removeImage}
-                className="text-red-400 hover:text-red-300 text-sm flex items-center gap-1"
-              >
+              <button type="button" onClick={removeImage} className="text-red-400 hover:text-red-300 text-sm flex items-center gap-1">
                 <X size={16} /> Quitar
               </button>
             )}
@@ -319,14 +232,12 @@ const NewsModal = ({ isOpen, onClose, onSave, news }) => {
               <img src={imagePreview} alt="Preview" className="w-full max-h-48 object-cover" />
             </div>
           )}
-          <p className="text-xs text-gray-500 mt-2">Se comprime automáticamente a 600px de ancho</p>
+          <p className="text-xs text-gray-500 mt-2">📐 Resolución óptima: 800x600px o superior. Se redimensiona automáticamente.</p>
         </div>
 
         <div className="flex gap-3 pt-4">
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancelar</Button>
-          <Button type="submit" loading={loading} className="flex-1">
-            {news ? 'Guardar' : 'Publicar'}
-          </Button>
+          <Button type="submit" loading={loading} className="flex-1">{news ? 'Guardar' : 'Publicar'}</Button>
         </div>
       </form>
     </Modal>

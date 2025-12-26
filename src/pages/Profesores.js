@@ -9,54 +9,41 @@ import { collection, query, where, onSnapshot, updateDoc, doc, serverTimestamp, 
 import { formatDate } from '../utils/helpers';
 
 const Profesores = () => {
-  const { userData, isAdmin } = useAuth();
+  const { userData, canManageProfesores } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
+  
   const [profesores, setProfesores] = useState([]);
-  const [allUsers, setAllUsers] = useState([]);
+  const [alumnos, setAlumnos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  
   const [showModal, setShowModal] = useState(false);
   const [showRemove, setShowRemove] = useState(false);
   const [selected, setSelected] = useState(null);
 
+  const canEdit = canManageProfesores();
+
   useEffect(() => {
     if (!currentGym?.id) { setLoading(false); return; }
 
-    // Profesores del gimnasio
-    const qProfesores = query(
-      collection(db, 'users'),
-      where('gymId', '==', currentGym.id),
-      where('role', '==', 'profesor')
-    );
-    const unsubProfesores = onSnapshot(qProfesores, (snap) => {
+    const profQuery = query(collection(db, 'users'), where('gymId', '==', currentGym.id), where('role', '==', 'profesor'));
+    const unsubProf = onSnapshot(profQuery, (snap) => {
       setProfesores(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
     });
 
-    // Todos los usuarios del gimnasio (para poder asignar)
-    const qUsers = query(
-      collection(db, 'users'),
-      where('gymId', '==', currentGym.id)
-    );
-    const unsubUsers = onSnapshot(qUsers, (snap) => {
-      setAllUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    const alumQuery = query(collection(db, 'users'), where('gymId', '==', currentGym.id), where('role', '==', 'alumno'));
+    const unsubAlum = onSnapshot(alumQuery, (snap) => {
+      setAlumnos(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    return () => { unsubProfesores(); unsubUsers(); };
+    return () => { unsubProf(); unsubAlum(); };
   }, [currentGym]);
 
-  const filtered = profesores.filter(p =>
-    p.name?.toLowerCase().includes(search.toLowerCase()) ||
-    p.email?.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const handleAssignProfesor = async (userId) => {
+  const handleAssign = async (alumnoId) => {
     try {
-      await updateDoc(doc(db, 'users', userId), {
-        role: 'profesor',
-        updatedAt: serverTimestamp()
-      });
+      await updateDoc(doc(db, 'users', alumnoId), { role: 'profesor', updatedAt: serverTimestamp() });
       success('Profesor asignado');
       setShowModal(false);
     } catch (err) {
@@ -64,12 +51,9 @@ const Profesores = () => {
     }
   };
 
-  const handleRemoveProfesor = async () => {
+  const handleRemove = async () => {
     try {
-      await updateDoc(doc(db, 'users', selected.id), {
-        role: 'alumno',
-        updatedAt: serverTimestamp()
-      });
+      await updateDoc(doc(db, 'users', selected.id), { role: 'alumno', updatedAt: serverTimestamp() });
       success('Rol de profesor removido');
       setShowRemove(false);
       setSelected(null);
@@ -78,20 +62,19 @@ const Profesores = () => {
     }
   };
 
-  // Usuarios que pueden ser asignados como profesores (alumnos del gimnasio)
-  const availableUsers = allUsers.filter(u => u.role === 'alumno');
+  const filteredProfesores = profesores.filter(p => !search || p.name?.toLowerCase().includes(search.toLowerCase()) || p.email?.toLowerCase().includes(search.toLowerCase()));
 
   if (loading) return <LoadingState />;
   if (!currentGym) return <EmptyState icon={UserCheck} title="Sin gimnasio" />;
 
   return (
     <div className="space-y-6 animate-fadeIn">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold">Profesores</h1>
-          <p className="text-gray-400">{profesores.length} profesores en {currentGym.name}</p>
+          <p className="text-gray-400">{filteredProfesores.length} profesores</p>
         </div>
-        {isAdmin() && (
+        {canEdit && (
           <Button icon={Plus} onClick={() => setShowModal(true)}>
             Asignar Profesor
           </Button>
@@ -100,84 +83,76 @@ const Profesores = () => {
 
       <SearchInput value={search} onChange={setSearch} placeholder="Buscar profesor..." />
 
-      {filtered.length === 0 ? (
-        <EmptyState
-          icon={UserCheck}
-          title="Sin profesores"
-          description="Asigna el rol de profesor a los alumnos que darán clases"
-          action={isAdmin() && <Button icon={Plus} onClick={() => setShowModal(true)}>Asignar</Button>}
+      {filteredProfesores.length === 0 ? (
+        <EmptyState 
+          icon={UserCheck} 
+          title="No hay profesores" 
+          description="Asigná el rol de profesor a alumnos existentes"
+          action={canEdit && <Button icon={Plus} onClick={() => setShowModal(true)}>Asignar</Button>}
         />
       ) : (
-        <div className="space-y-3">
-          {filtered.map(profesor => (
-            <Card key={profesor.id} className="hover:border-emerald-500/30">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <Avatar name={profesor.name} size="lg" />
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          {filteredProfesores.map(prof => (
+            <Card key={prof.id}>
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-3">
+                  <Avatar name={prof.name} size="lg" />
                   <div>
-                    <h3 className="font-semibold">{profesor.name}</h3>
-                    <div className="flex flex-wrap items-center gap-3 text-sm text-gray-400">
-                      <span className="flex items-center gap-1"><Mail size={14} />{profesor.email}</span>
-                      {profesor.phone && <span className="flex items-center gap-1"><Phone size={14} />{profesor.phone}</span>}
-                    </div>
-                    <Badge variant="emerald" className="mt-1">
-                      <UserCheck size={12} className="mr-1" /> Profesor
-                    </Badge>
+                    <h3 className="font-semibold">{prof.name}</h3>
+                    <Badge className="mt-1 bg-blue-500/20 text-blue-400">Profesor</Badge>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-gray-500 hidden sm:block">Desde {formatDate(profesor.createdAt)}</span>
-                  {isAdmin() && (
-                    <Dropdown trigger={<button className="p-2 hover:bg-gray-700 rounded-lg"><MoreVertical size={18} /></button>}>
-                      <DropdownItem icon={Shield} danger onClick={() => { setSelected(profesor); setShowRemove(true); }}>
-                        Quitar rol de profesor
-                      </DropdownItem>
-                    </Dropdown>
-                  )}
-                </div>
+                {canEdit && (
+                  <Dropdown trigger={<button className="p-2 hover:bg-gray-700 rounded-lg"><MoreVertical size={18} /></button>}>
+                    <DropdownItem icon={Shield} danger onClick={() => { setSelected(prof); setShowRemove(true); }}>
+                      Quitar rol
+                    </DropdownItem>
+                  </Dropdown>
+                )}
+              </div>
+              <div className="mt-4 pt-3 border-t border-gray-700 space-y-1 text-sm text-gray-400">
+                <p className="flex items-center gap-2"><Mail size={14} /> {prof.email}</p>
+                {prof.phone && <p className="flex items-center gap-2"><Phone size={14} /> {prof.phone}</p>}
+                <p className="text-xs">Desde: {formatDate(prof.updatedAt || prof.createdAt)}</p>
               </div>
             </Card>
           ))}
         </div>
       )}
 
-      {/* Modal para asignar profesor */}
-      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Asignar Profesor" size="lg">
+      {/* Modal asignar profesor */}
+      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Asignar Profesor">
         <div className="space-y-4">
-          <p className="text-sm text-gray-400">Selecciona un alumno para asignarle el rol de profesor:</p>
-          
-          {availableUsers.length === 0 ? (
-            <p className="text-center text-gray-500 py-8">No hay alumnos disponibles para asignar</p>
+          <p className="text-gray-400">Seleccioná un alumno para convertirlo en profesor:</p>
+          {alumnos.length === 0 ? (
+            <p className="text-center py-4 text-gray-500">No hay alumnos disponibles</p>
           ) : (
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {availableUsers.map(user => (
-                <div
-                  key={user.id}
-                  className="flex items-center justify-between p-3 bg-gray-800/50 rounded-xl hover:bg-gray-800 cursor-pointer"
-                  onClick={() => handleAssignProfesor(user.id)}
+            <div className="space-y-2 max-h-60 overflow-y-auto">
+              {alumnos.map(alumno => (
+                <button
+                  key={alumno.id}
+                  onClick={() => handleAssign(alumno.id)}
+                  className="w-full flex items-center gap-3 p-3 bg-gray-800 hover:bg-gray-700 rounded-xl transition-colors text-left"
                 >
-                  <div className="flex items-center gap-3">
-                    <Avatar name={user.name} size="md" />
-                    <div>
-                      <p className="font-medium">{user.name}</p>
-                      <p className="text-xs text-gray-400">{user.email}</p>
-                    </div>
+                  <Avatar name={alumno.name} size="sm" />
+                  <div>
+                    <p className="font-medium">{alumno.name}</p>
+                    <p className="text-sm text-gray-400">{alumno.email}</p>
                   </div>
-                  <Button size="sm" variant="secondary">Asignar</Button>
-                </div>
+                </button>
               ))}
             </div>
           )}
         </div>
       </Modal>
 
-      <ConfirmDialog
-        isOpen={showRemove}
-        onClose={() => setShowRemove(false)}
-        onConfirm={handleRemoveProfesor}
-        title="Quitar rol de profesor"
-        message={`¿Quitar el rol de profesor a ${selected?.name}? Pasará a ser alumno.`}
-        confirmText="Quitar rol"
+      <ConfirmDialog 
+        isOpen={showRemove} 
+        onClose={() => setShowRemove(false)} 
+        onConfirm={handleRemove} 
+        title="Quitar rol de profesor" 
+        message={`¿Quitar el rol de profesor a "${selected?.name}"? Volverá a ser alumno.`}
+        confirmText="Quitar rol" 
       />
     </div>
   );

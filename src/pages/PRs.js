@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, TrendingUp, Check, X, Clock, Trophy, Filter } from 'lucide-react';
-import { Button, Card, Modal, Input, Select, SearchInput, EmptyState, LoadingState, Badge, Avatar, Tabs } from '../components/Common';
+import { Plus, TrendingUp, Check, X, Clock, Trophy, Filter, MoreVertical, Edit, Trash2 } from 'lucide-react';
+import { Button, Card, Modal, Input, Select, SearchInput, EmptyState, LoadingState, Badge, Avatar, Tabs, Dropdown, DropdownItem, ConfirmDialog } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
 import { db } from '../firebase';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { PR_STATUS } from '../utils/constants';
 import { getPRStatusColor, getPRStatusName, formatDate, formatTimeValue } from '../utils/helpers';
 
@@ -13,60 +13,82 @@ const PRs = () => {
   const { userData, canValidateRankings, isAlumno } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
+  
   const [prs, setPrs] = useState([]);
   const [exercises, setExercises] = useState([]);
-  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('pending');
+  const [search, setSearch] = useState('');
+  const [filterStatus, setFilterStatus] = useState('all');
+  const [activeTab, setActiveTab] = useState('all');
+  
   const [showModal, setShowModal] = useState(false);
+  const [showDelete, setShowDelete] = useState(false);
+  const [selected, setSelected] = useState(null);
+
+  const canEdit = canValidateRankings();
 
   useEffect(() => {
     if (!currentGym?.id) { setLoading(false); return; }
 
-    // Query basada en rol
-    let prQuery;
+    let prsQuery;
     if (isAlumno()) {
-      prQuery = query(collection(db, 'personalRecords'), where('userId', '==', userData.id), orderBy('createdAt', 'desc'));
+      prsQuery = query(collection(db, 'prs'), where('gymId', '==', currentGym.id), where('userId', '==', userData.id));
     } else {
-      prQuery = query(collection(db, 'personalRecords'), where('gymId', '==', currentGym.id), orderBy('createdAt', 'desc'));
+      prsQuery = query(collection(db, 'prs'), where('gymId', '==', currentGym.id));
     }
 
-    const unsubPrs = onSnapshot(prQuery, (snap) => {
-      setPrs(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    const unsubPrs = onSnapshot(prsQuery, (snap) => {
+      const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      items.sort((a, b) => {
+        const dateA = a.createdAt?.toDate?.() || new Date(0);
+        const dateB = b.createdAt?.toDate?.() || new Date(0);
+        return dateB - dateA;
+      });
+      setPrs(items);
       setLoading(false);
     });
 
-    const unsubExercises = onSnapshot(query(collection(db, 'exercises'), where('gymId', '==', currentGym.id)), (snap) => {
-      setExercises(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
+    const exQuery = query(collection(db, 'exercises'), where('gymId', '==', currentGym.id));
+    const unsubEx = onSnapshot(exQuery, (snap) => setExercises(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
 
-    if (!isAlumno()) {
-      const unsubUsers = onSnapshot(query(collection(db, 'users'), where('gymId', '==', currentGym.id)), (snap) => {
-        setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      });
-      return () => { unsubPrs(); unsubExercises(); unsubUsers(); };
-    }
-
-    return () => { unsubPrs(); unsubExercises(); };
+    return () => { unsubPrs(); unsubEx(); };
   }, [currentGym, userData, isAlumno]);
 
-  const filteredPrs = prs.filter(pr => {
-    if (activeTab === 'all') return true;
-    return pr.status === activeTab;
-  });
+  const getFilteredPRs = () => {
+    let filtered = prs;
+    if (activeTab === 'mine') filtered = filtered.filter(p => p.userId === userData.id);
+    if (activeTab === 'pending') filtered = filtered.filter(p => p.status === 'pending');
+    if (filterStatus !== 'all') filtered = filtered.filter(p => p.status === filterStatus);
+    if (search) {
+      const s = search.toLowerCase();
+      filtered = filtered.filter(p => p.exerciseName?.toLowerCase().includes(s) || p.userName?.toLowerCase().includes(s));
+    }
+    return filtered;
+  };
 
-  const handleSubmitPR = async (data) => {
+  const handleSave = async (data) => {
     try {
-      await addDoc(collection(db, 'personalRecords'), {
+      const exercise = exercises.find(e => e.id === data.exerciseId);
+      const prData = {
         ...data,
+        exerciseName: exercise?.name || '',
+        unit: exercise?.unit || 'kg',
+        gymId: currentGym.id,
         userId: userData.id,
         userName: userData.name,
-        gymId: currentGym.id,
         status: 'pending',
-        createdAt: serverTimestamp()
-      });
-      success('PR enviado para validación');
+        updatedAt: serverTimestamp()
+      };
+
+      if (selected?.id) {
+        await updateDoc(doc(db, 'prs', selected.id), prData);
+        success('PR actualizado');
+      } else {
+        await addDoc(collection(db, 'prs'), { ...prData, createdAt: serverTimestamp() });
+        success('PR registrado y pendiente de validación');
+      }
       setShowModal(false);
+      setSelected(null);
     } catch (err) {
       showError('Error al guardar');
     }
@@ -74,131 +96,138 @@ const PRs = () => {
 
   const handleValidate = async (pr, newStatus) => {
     try {
-      await updateDoc(doc(db, 'personalRecords', pr.id), {
+      await updateDoc(doc(db, 'prs', pr.id), {
         status: newStatus,
         validatedBy: userData.id,
+        validatedByName: userData.name,
         validatedAt: serverTimestamp()
       });
       success(newStatus === 'validated' ? 'PR validado' : 'PR rechazado');
     } catch (err) {
-      showError('Error al actualizar');
+      showError('Error al validar');
     }
   };
 
-  const getExerciseName = (id) => exercises.find(e => e.id === id)?.name || 'Ejercicio';
-  const getExerciseUnit = (id) => exercises.find(e => e.id === id)?.unit || 'kg';
-  const getUserName = (id) => users.find(u => u.id === id)?.name || 'Usuario';
-
-  const formatValue = (value, unit) => {
-    if (unit === 'seconds' || unit === 'minutes') return formatTimeValue(value);
-    return `${value} ${unit}`;
+  const handleDelete = async () => {
+    try {
+      await deleteDoc(doc(db, 'prs', selected.id));
+      success('PR eliminado');
+      setShowDelete(false);
+      setSelected(null);
+    } catch (err) {
+      showError('Error al eliminar');
+    }
   };
+
+  const filteredPRs = getFilteredPRs();
+  const pendingCount = prs.filter(p => p.status === 'pending').length;
 
   if (loading) return <LoadingState />;
   if (!currentGym) return <EmptyState icon={TrendingUp} title="Sin gimnasio" />;
 
-  const tabs = isAlumno() 
-    ? [{ id: 'all', label: 'Todos' }, { id: 'pending', label: 'Pendientes' }, { id: 'validated', label: 'Validados' }]
-    : [{ id: 'pending', label: 'Por Validar', icon: Clock }, { id: 'validated', label: 'Validados', icon: Check }, { id: 'all', label: 'Todos' }];
-
   return (
     <div className="space-y-6 animate-fadeIn">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold">{isAlumno() ? 'Mis PRs' : 'Marcas Personales'}</h1>
-          <p className="text-gray-400">{prs.length} registros</p>
+          <h1 className="text-2xl font-bold">Personal Records</h1>
+          <p className="text-gray-400">{filteredPRs.length} registros</p>
         </div>
-        {isAlumno() && <Button icon={Plus} onClick={() => setShowModal(true)}>Registrar PR</Button>}
+        <Button icon={Plus} onClick={() => { setSelected(null); setShowModal(true); }}>Registrar PR</Button>
       </div>
 
-      <Tabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
+      {/* Tabs */}
+      <div className="flex gap-2 overflow-x-auto pb-2">
+        <button onClick={() => setActiveTab('all')} className={`px-4 py-2 rounded-xl whitespace-nowrap transition-colors ${activeTab === 'all' ? 'bg-primary text-white' : 'bg-gray-800 hover:bg-gray-700'}`}>Todos</button>
+        <button onClick={() => setActiveTab('mine')} className={`px-4 py-2 rounded-xl whitespace-nowrap transition-colors ${activeTab === 'mine' ? 'bg-primary text-white' : 'bg-gray-800 hover:bg-gray-700'}`}>Mis PRs</button>
+        {canEdit && (
+          <button onClick={() => setActiveTab('pending')} className={`px-4 py-2 rounded-xl whitespace-nowrap transition-colors flex items-center gap-2 ${activeTab === 'pending' ? 'bg-primary text-white' : 'bg-gray-800 hover:bg-gray-700'}`}>
+            Pendientes
+            {pendingCount > 0 && <span className="bg-yellow-500 text-black text-xs px-2 py-0.5 rounded-full">{pendingCount}</span>}
+          </button>
+        )}
+      </div>
 
-      {filteredPrs.length === 0 ? (
-        <EmptyState icon={TrendingUp} title={activeTab === 'pending' ? 'No hay PRs pendientes' : 'No hay PRs'} action={isAlumno() && <Button icon={Plus} onClick={() => setShowModal(true)}>Registrar</Button>} />
+      <div className="flex flex-col sm:flex-row gap-4">
+        <SearchInput value={search} onChange={setSearch} placeholder="Buscar ejercicio o usuario..." className="flex-1" />
+        <Select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} options={[{ value: 'all', label: 'Todos los estados' }, ...PR_STATUS.map(s => ({ value: s.id, label: s.name }))]} className="w-full sm:w-48" />
+      </div>
+
+      {filteredPRs.length === 0 ? (
+        <EmptyState icon={TrendingUp} title="No hay PRs" description={activeTab === 'pending' ? 'No hay PRs pendientes de validar' : 'Registrá tu primera marca personal'} action={<Button icon={Plus} onClick={() => setShowModal(true)}>Registrar PR</Button>} />
       ) : (
         <div className="space-y-3">
-          {filteredPrs.map(pr => (
-            <Card key={pr.id} className="hover:border-emerald-500/30">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center">
-                    <Trophy className="text-emerald-500" size={24} />
+          {filteredPRs.map(pr => (
+            <Card key={pr.id} className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <Avatar name={pr.userName} size="md" />
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold">{pr.exerciseName}</h3>
+                    <Badge className={getPRStatusColor(pr.status)}>{getPRStatusName(pr.status)}</Badge>
                   </div>
-                  <div>
-                    <h3 className="font-semibold">{getExerciseName(pr.exerciseId)}</h3>
-                    {!isAlumno() && <p className="text-sm text-gray-400">{pr.userName || getUserName(pr.userId)}</p>}
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-2xl font-bold text-emerald-500">{formatValue(pr.value, getExerciseUnit(pr.exerciseId))}</span>
-                      <Badge variant={getPRStatusColor(pr.status)}>{getPRStatusName(pr.status)}</Badge>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-gray-500">{formatDate(pr.createdAt)}</span>
-                  {canValidateRankings() && pr.status === 'pending' && (
-                    <div className="flex gap-2">
-                      <button onClick={() => handleValidate(pr, 'validated')} className="p-2 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-500 rounded-lg">
-                        <Check size={18} />
-                      </button>
-                      <button onClick={() => handleValidate(pr, 'rejected')} className="p-2 bg-red-500/20 hover:bg-red-500/30 text-red-500 rounded-lg">
-                        <X size={18} />
-                      </button>
-                    </div>
-                  )}
+                  <p className="text-sm text-gray-400">{pr.userName} • {formatDate(pr.createdAt)}</p>
                 </div>
               </div>
-              {pr.notes && <p className="text-sm text-gray-400 mt-2">{pr.notes}</p>}
+              <div className="flex items-center gap-4">
+                <div className="text-right">
+                  <p className="text-2xl font-bold">{formatTimeValue(pr.value, pr.unit)}</p>
+                  {pr.notes && <p className="text-xs text-gray-500">{pr.notes}</p>}
+                </div>
+                {canEdit && pr.status === 'pending' && (
+                  <div className="flex gap-2">
+                    <button onClick={() => handleValidate(pr, 'validated')} className="p-2 bg-green-500/20 hover:bg-green-500/30 rounded-lg text-green-400"><Check size={18} /></button>
+                    <button onClick={() => handleValidate(pr, 'rejected')} className="p-2 bg-red-500/20 hover:bg-red-500/30 rounded-lg text-red-400"><X size={18} /></button>
+                  </div>
+                )}
+                {(canEdit || pr.userId === userData.id) && (
+                  <Dropdown trigger={<button className="p-2 hover:bg-gray-700 rounded-lg"><MoreVertical size={18} /></button>}>
+                    <DropdownItem icon={Edit} onClick={() => { setSelected(pr); setShowModal(true); }}>Editar</DropdownItem>
+                    <DropdownItem icon={Trash2} danger onClick={() => { setSelected(pr); setShowDelete(true); }}>Eliminar</DropdownItem>
+                  </Dropdown>
+                )}
+              </div>
             </Card>
           ))}
         </div>
       )}
 
-      <PRModal isOpen={showModal} onClose={() => setShowModal(false)} onSave={handleSubmitPR} exercises={exercises} />
+      <PRModal isOpen={showModal} onClose={() => { setShowModal(false); setSelected(null); }} onSave={handleSave} pr={selected} exercises={exercises} />
+      <ConfirmDialog isOpen={showDelete} onClose={() => setShowDelete(false)} onConfirm={handleDelete} title="Eliminar PR" message="¿Eliminar este registro?" confirmText="Eliminar" />
     </div>
   );
 };
 
-const PRModal = ({ isOpen, onClose, onSave, exercises }) => {
+const PRModal = ({ isOpen, onClose, onSave, pr, exercises }) => {
   const [form, setForm] = useState({ exerciseId: '', value: '', notes: '' });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    setForm({ exerciseId: '', value: '', notes: '' });
-  }, [isOpen]);
+    if (pr) {
+      setForm({ exerciseId: pr.exerciseId || '', value: pr.value || '', notes: pr.notes || '' });
+    } else {
+      setForm({ exerciseId: '', value: '', notes: '' });
+    }
+  }, [pr, isOpen]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.exerciseId || !form.value) return;
     setLoading(true);
-    await onSave({ ...form, value: parseFloat(form.value) });
+    await onSave(form);
     setLoading(false);
   };
 
   const selectedExercise = exercises.find(e => e.id === form.exerciseId);
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Registrar PR">
+    <Modal isOpen={isOpen} onClose={onClose} title={pr ? 'Editar PR' : 'Registrar PR'}>
       <form onSubmit={handleSubmit} className="space-y-4">
-        <Select label="Ejercicio *" value={form.exerciseId} onChange={e => setForm({ ...form, exerciseId: e.target.value })} options={exercises.map(e => ({ value: e.id, label: e.name }))} placeholder="Seleccionar ejercicio" />
-        
-        <Input 
-          label={`Valor (${selectedExercise?.unit || 'kg'}) *`} 
-          type="number" 
-          step="0.5"
-          value={form.value} 
-          onChange={e => setForm({ ...form, value: e.target.value })} 
-          placeholder={selectedExercise?.unit === 'reps' ? '10' : '100'}
-        />
-        
-        <Input label="Notas (opcional)" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Detalles adicionales..." />
-
-        <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl text-sm text-yellow-400">
-          ⚠️ Tu PR será revisado por un profesor antes de aparecer en los rankings
-        </div>
-
+        <Select label="Ejercicio *" value={form.exerciseId} onChange={e => setForm({ ...form, exerciseId: e.target.value })} options={exercises.map(ex => ({ value: ex.id, label: ex.name }))} required />
+        <Input label={`Valor (${selectedExercise?.unit || 'kg'}) *`} type="number" step="0.1" value={form.value} onChange={e => setForm({ ...form, value: e.target.value })} placeholder="Ej: 100" required />
+        <Input label="Notas" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Ej: Sin cinturón" />
         <div className="flex gap-3 pt-4">
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancelar</Button>
-          <Button type="submit" loading={loading} className="flex-1">Enviar</Button>
+          <Button type="submit" loading={loading} className="flex-1">Guardar</Button>
         </div>
       </form>
     </Modal>

@@ -10,7 +10,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { compressAndConvertToBase64 } from '../utils/imageUtils';
 
 const Settings = () => {
-  const { userData, isAdmin, isSysadmin } = useAuth();
+  const { userData, canManageGymSettings } = useAuth();
   const { currentGym } = useGym();
   const { isDark, toggleTheme, paletteId, setPaletteId, saveGymTheme, gymLogo } = useTheme();
   const { success, error: showError } = useToast();
@@ -19,7 +19,7 @@ const Settings = () => {
   const [logoPreview, setLogoPreview] = useState(null);
   const [saving, setSaving] = useState(false);
 
-  const canEdit = isAdmin() || isSysadmin();
+  const canEdit = canManageGymSettings();
 
   useEffect(() => {
     setSelectedPalette(paletteId);
@@ -57,15 +57,10 @@ const Settings = () => {
 
     setSaving(true);
     try {
-      // Comprimir y convertir a Base64
-      const base64 = await compressAndConvertToBase64(file, 300, 0.8);
+      const base64 = await compressAndConvertToBase64(file, 400, 0.85);
       setLogoPreview(base64);
       
-      // Guardar en Firestore
-      await updateDoc(doc(db, 'gyms', currentGym.id), { 
-        logo: base64 
-      });
-      
+      await updateDoc(doc(db, 'gyms', currentGym.id), { logo: base64 });
       success('Logo actualizado');
     } catch (err) {
       console.error(err);
@@ -136,7 +131,7 @@ const Settings = () => {
             </div>
             <div>
               <h3 className="font-semibold">Logo del Gimnasio</h3>
-              <p className="text-sm text-gray-400">Se comprime automáticamente</p>
+              <p className="text-sm text-gray-400">Imagen identificativa</p>
             </div>
           </div>
           <div className="flex items-center gap-6">
@@ -153,7 +148,7 @@ const Settings = () => {
                 <span>{saving ? 'Subiendo...' : 'Cambiar Logo'}</span>
                 <input type="file" accept="image/*" onChange={handleLogoChange} className="hidden" disabled={saving} />
               </label>
-              <p className="text-xs text-gray-500 mt-2">JPG, PNG. Se redimensiona a 300px.</p>
+              <p className="text-xs text-gray-500 mt-2">📐 Resolución óptima: 400x400px (cuadrado). Se redimensiona automáticamente.</p>
             </div>
           </div>
         </Card>
@@ -162,7 +157,7 @@ const Settings = () => {
       {/* Info del Gimnasio */}
       {currentGym && (
         <Card>
-          <div className="flex items-center gap-4 mb-4">
+          <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-gray-700 rounded-xl flex items-center justify-center">
               <Building2 className="text-blue-400" size={24} />
             </div>
@@ -184,7 +179,7 @@ const Settings = () => {
             <h3 className="font-semibold">{userData?.name}</h3>
             <p className="text-sm text-gray-400">{userData?.email}</p>
             <Badge className="mt-1 badge-primary">
-              {userData?.role === 'sysadmin' ? 'Sysadmin' : userData?.role === 'admin' ? 'Admin' : userData?.role === 'profesor' ? 'Profesor' : 'Alumno'}
+              {userData?.role === 'sysadmin' ? '👑 Sysadmin' : userData?.role === 'admin' ? 'Admin' : userData?.role === 'profesor' ? 'Profesor' : 'Alumno'}
             </Badge>
           </div>
         </div>
