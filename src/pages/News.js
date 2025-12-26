@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Megaphone, MoreVertical, Edit, Trash2, Image as ImageIcon, Link as LinkIcon, Bell, ExternalLink } from 'lucide-react';
-import { Button, Card, Modal, Input, Textarea, EmptyState, LoadingState, ConfirmDialog, Avatar, Dropdown, DropdownItem, Badge } from '../components/Common';
+import { Plus, Megaphone, MoreVertical, Edit, Trash2, Image as ImageIcon, Link as LinkIcon, ExternalLink, X } from 'lucide-react';
+import { Button, Card, Modal, Input, Textarea, EmptyState, LoadingState, ConfirmDialog, Avatar, Dropdown, DropdownItem } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
-import { db, storage } from '../firebase';
+import { db } from '../firebase';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { formatRelativeDate } from '../utils/helpers';
+import { compressAndConvertToBase64 } from '../utils/imageUtils';
 
 const News = () => {
   const { userData, isAdmin } = useAuth();
@@ -20,7 +20,6 @@ const News = () => {
   const [showDelete, setShowDelete] = useState(false);
   const [selected, setSelected] = useState(null);
 
-  // Solo Admin puede publicar
   const canPublish = isAdmin();
 
   useEffect(() => {
@@ -28,57 +27,49 @@ const News = () => {
 
     const q = query(
       collection(db, 'news'),
-      where('gymId', '==', currentGym.id),
-      orderBy('createdAt', 'desc')
+      where('gymId', '==', currentGym.id)
     );
     
     const unsubscribe = onSnapshot(q, (snap) => {
-      setNews(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setLoading(false);
-    }, (error) => {
-      console.error('Error:', error);
-      // Si falla por falta de índice, cargar sin orderBy
-      const qSimple = query(collection(db, 'news'), where('gymId', '==', currentGym.id));
-      onSnapshot(qSimple, (snap) => {
-        const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        items.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-        setNews(items);
-        setLoading(false);
+      const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Ordenar por fecha de creación (más reciente primero)
+      items.sort((a, b) => {
+        const dateA = a.createdAt?.toDate?.() || new Date(0);
+        const dateB = b.createdAt?.toDate?.() || new Date(0);
+        return dateB - dateA;
       });
+      setNews(items);
+      setLoading(false);
     });
 
     return () => unsubscribe();
   }, [currentGym]);
 
-  const handleSave = async (data, imageFile) => {
+  const handleSave = async (data) => {
     try {
-      let imageUrl = data.imageUrl || null;
-
-      // Subir imagen si hay una nueva
-      if (imageFile) {
-        const imageRef = ref(storage, `news/${currentGym.id}/${Date.now()}_${imageFile.name}`);
-        await uploadBytes(imageRef, imageFile);
-        imageUrl = await getDownloadURL(imageRef);
-      }
-
       const newsData = {
         title: data.title,
         body: data.body,
         link: data.link || null,
         linkText: data.linkText || null,
-        imageUrl,
+        imageBase64: data.imageBase64 || null,
         gymId: currentGym.id,
         authorId: userData.id,
         authorName: userData.name
       };
 
       if (selected?.id) {
-        await updateDoc(doc(db, 'news', selected.id), { ...newsData, updatedAt: serverTimestamp() });
+        await updateDoc(doc(db, 'news', selected.id), { 
+          ...newsData, 
+          updatedAt: serverTimestamp() 
+        });
         success('Novedad actualizada');
       } else {
-        await addDoc(collection(db, 'news'), { ...newsData, createdAt: serverTimestamp() });
+        await addDoc(collection(db, 'news'), { 
+          ...newsData, 
+          createdAt: serverTimestamp() 
+        });
         success('Novedad publicada');
-        // Aquí iría la integración con Firebase Cloud Messaging para push notifications
       }
 
       setShowModal(false);
@@ -100,7 +91,6 @@ const News = () => {
     }
   };
 
-  // Detectar URLs en el texto y convertirlas en links
   const renderTextWithLinks = (text) => {
     if (!text) return null;
     const urlRegex = /(https?:\/\/[^\s]+)/g;
@@ -134,19 +124,6 @@ const News = () => {
           </Button>
         )}
       </div>
-
-      {/* Info push notifications */}
-      {canPublish && (
-        <Card className="bg-blue-500/10 border-blue-500/30">
-          <div className="flex items-center gap-3">
-            <Bell className="text-blue-400 flex-shrink-0" size={24} />
-            <div>
-              <p className="font-medium text-blue-400">Notificaciones Push</p>
-              <p className="text-sm text-gray-400">Al publicar, se enviará una notificación a todos los miembros.</p>
-            </div>
-          </div>
-        </Card>
-      )}
 
       {news.length === 0 ? (
         <EmptyState 
@@ -188,7 +165,8 @@ const News = () => {
                   href={item.link} 
                   target="_blank" 
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-primary-20 text-primary rounded-xl hover:bg-primary-30 transition-colors mb-3"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-primary/20 rounded-xl hover:bg-primary/30 transition-colors mb-3"
+                  style={{ color: 'rgba(var(--color-primary), 1)' }}
                 >
                   <ExternalLink size={16} />
                   {item.linkText || 'Ver más'}
@@ -196,9 +174,9 @@ const News = () => {
               )}
 
               {/* Imagen */}
-              {item.imageUrl && (
+              {item.imageBase64 && (
                 <div className="rounded-xl overflow-hidden">
-                  <img src={item.imageUrl} alt={item.title} className="w-full max-h-96 object-cover" />
+                  <img src={item.imageBase64} alt={item.title} className="w-full max-h-96 object-cover" />
                 </div>
               )}
             </Card>
@@ -225,10 +203,10 @@ const News = () => {
 };
 
 const NewsModal = ({ isOpen, onClose, onSave, news }) => {
-  const [form, setForm] = useState({ title: '', body: '', link: '', linkText: '', imageUrl: '' });
-  const [imageFile, setImageFile] = useState(null);
+  const [form, setForm] = useState({ title: '', body: '', link: '', linkText: '', imageBase64: '' });
   const [imagePreview, setImagePreview] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   useEffect(() => {
     if (news) {
@@ -237,33 +215,45 @@ const NewsModal = ({ isOpen, onClose, onSave, news }) => {
         body: news.body || '', 
         link: news.link || '',
         linkText: news.linkText || '',
-        imageUrl: news.imageUrl || '' 
+        imageBase64: news.imageBase64 || '' 
       });
-      setImagePreview(news.imageUrl || null);
+      setImagePreview(news.imageBase64 || null);
     } else {
-      setForm({ title: '', body: '', link: '', linkText: '', imageUrl: '' });
+      setForm({ title: '', body: '', link: '', linkText: '', imageBase64: '' });
       setImagePreview(null);
     }
-    setImageFile(null);
   }, [news, isOpen]);
 
-  const handleImageChange = (e) => {
+  const handleImageChange = async (e) => {
     const file = e.target.files[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        alert('La imagen no puede superar los 5MB');
-        return;
-      }
-      setImageFile(file);
-      setImagePreview(URL.createObjectURL(file));
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Solo se permiten imágenes');
+      return;
     }
+
+    setUploadingImage(true);
+    try {
+      const base64 = await compressAndConvertToBase64(file, 600, 0.7);
+      setForm(prev => ({ ...prev, imageBase64: base64 }));
+      setImagePreview(base64);
+    } catch (err) {
+      alert(err.message || 'Error al procesar imagen');
+    }
+    setUploadingImage(false);
+  };
+
+  const removeImage = () => {
+    setForm(prev => ({ ...prev, imageBase64: '' }));
+    setImagePreview(null);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!form.title || !form.body) return;
     setLoading(true);
-    await onSave(form, imageFile);
+    await onSave(form);
     setLoading(false);
   };
 
@@ -282,8 +272,8 @@ const NewsModal = ({ isOpen, onClose, onSave, news }) => {
           label="Contenido *" 
           value={form.body} 
           onChange={e => setForm({ ...form, body: e.target.value })} 
-          rows={6}
-          placeholder="Escribe el contenido de la publicación...&#10;&#10;Podés incluir URLs que se convertirán automáticamente en links."
+          rows={5}
+          placeholder="Escribe el contenido..."
           required
         />
 
@@ -301,7 +291,7 @@ const NewsModal = ({ isOpen, onClose, onSave, news }) => {
           <Input 
             value={form.linkText} 
             onChange={e => setForm({ ...form, linkText: e.target.value })} 
-            placeholder="Texto del botón (ej: Inscribirse, Ver más)"
+            placeholder="Texto del botón (ej: Inscribirse)"
           />
         </div>
 
@@ -309,18 +299,18 @@ const NewsModal = ({ isOpen, onClose, onSave, news }) => {
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">Imagen (opcional)</label>
           <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl cursor-pointer transition-colors">
+            <label className={`flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl cursor-pointer transition-colors ${uploadingImage ? 'opacity-50' : ''}`}>
               <ImageIcon size={18} />
-              <span>Subir imagen</span>
-              <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
+              <span>{uploadingImage ? 'Procesando...' : 'Subir imagen'}</span>
+              <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" disabled={uploadingImage} />
             </label>
             {imagePreview && (
               <button 
                 type="button" 
-                onClick={() => { setImageFile(null); setImagePreview(null); setForm({ ...form, imageUrl: '' }); }}
-                className="text-red-400 hover:text-red-300 text-sm"
+                onClick={removeImage}
+                className="text-red-400 hover:text-red-300 text-sm flex items-center gap-1"
               >
-                Quitar
+                <X size={16} /> Quitar
               </button>
             )}
           </div>
@@ -329,6 +319,7 @@ const NewsModal = ({ isOpen, onClose, onSave, news }) => {
               <img src={imagePreview} alt="Preview" className="w-full max-h-48 object-cover" />
             </div>
           )}
+          <p className="text-xs text-gray-500 mt-2">Se comprime automáticamente a 600px de ancho</p>
         </div>
 
         <div className="flex gap-3 pt-4">

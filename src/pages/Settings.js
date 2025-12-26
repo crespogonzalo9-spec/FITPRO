@@ -5,17 +5,17 @@ import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useTheme, COLOR_PALETTES } from '../contexts/ThemeContext';
 import { useToast } from '../contexts/ToastContext';
-import { storage } from '../firebase';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { db } from '../firebase';
+import { doc, updateDoc } from 'firebase/firestore';
+import { compressAndConvertToBase64 } from '../utils/imageUtils';
 
 const Settings = () => {
   const { userData, isAdmin, isSysadmin } = useAuth();
   const { currentGym } = useGym();
-  const { isDark, toggleTheme, paletteId, setPaletteId, saveGymTheme, saveGymLogo, gymLogo } = useTheme();
+  const { isDark, toggleTheme, paletteId, setPaletteId, saveGymTheme, gymLogo } = useTheme();
   const { success, error: showError } = useToast();
   
   const [selectedPalette, setSelectedPalette] = useState(paletteId);
-  const [logoFile, setLogoFile] = useState(null);
   const [logoPreview, setLogoPreview] = useState(null);
   const [saving, setSaving] = useState(false);
 
@@ -46,30 +46,31 @@ const Settings = () => {
     setSaving(false);
   };
 
-  const handleLogoChange = (e) => {
+  const handleLogoChange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (file.size > 2 * 1024 * 1024) { showError('Máximo 2MB'); return; }
-    const img = new window.Image();
-    img.onload = () => {
-      if (img.width < 200 || img.height < 200) { showError('Mínimo 200x200px'); return; }
-      setLogoFile(file);
-      setLogoPreview(URL.createObjectURL(file));
-    };
-    img.src = URL.createObjectURL(file);
-  };
 
-  const handleSaveLogo = async () => {
-    if (!logoFile || !currentGym?.id) return;
+    if (!file.type.startsWith('image/')) {
+      showError('Solo se permiten imágenes');
+      return;
+    }
+
     setSaving(true);
     try {
-      const logoRef = ref(storage, `gyms/${currentGym.id}/logo_${Date.now()}`);
-      await uploadBytes(logoRef, logoFile);
-      const logoUrl = await getDownloadURL(logoRef);
-      const result = await saveGymLogo(currentGym.id, logoUrl);
-      if (result.success) { success('Logo actualizado'); setLogoFile(null); }
-      else showError('Error');
-    } catch (err) { showError('Error al subir'); }
+      // Comprimir y convertir a Base64
+      const base64 = await compressAndConvertToBase64(file, 300, 0.8);
+      setLogoPreview(base64);
+      
+      // Guardar en Firestore
+      await updateDoc(doc(db, 'gyms', currentGym.id), { 
+        logo: base64 
+      });
+      
+      success('Logo actualizado');
+    } catch (err) {
+      console.error(err);
+      showError(err.message || 'Error al subir imagen');
+    }
     setSaving(false);
   };
 
@@ -80,6 +81,7 @@ const Settings = () => {
         <p className="text-gray-400">Personaliza la apariencia</p>
       </div>
 
+      {/* Modo Oscuro/Claro */}
       <Card>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
@@ -97,6 +99,7 @@ const Settings = () => {
         </div>
       </Card>
 
+      {/* Paleta de Colores */}
       {canEdit && currentGym && (
         <Card>
           <div className="flex items-center gap-4 mb-4">
@@ -124,6 +127,7 @@ const Settings = () => {
         </Card>
       )}
 
+      {/* Logo del Gimnasio */}
       {canEdit && currentGym && (
         <Card>
           <div className="flex items-center gap-4 mb-4">
@@ -132,29 +136,30 @@ const Settings = () => {
             </div>
             <div>
               <h3 className="font-semibold">Logo del Gimnasio</h3>
-              <p className="text-sm text-gray-400">Mínimo 200x200px, máximo 2MB</p>
+              <p className="text-sm text-gray-400">Se comprime automáticamente</p>
             </div>
           </div>
           <div className="flex items-center gap-6">
             <div className="w-24 h-24 rounded-xl overflow-hidden bg-gray-800 flex items-center justify-center border-2 border-dashed border-gray-600">
-              {logoPreview ? <img src={logoPreview} alt="Logo" className="w-full h-full object-cover" /> : <Building2 className="text-gray-600" size={40} />}
+              {logoPreview ? (
+                <img src={logoPreview} alt="Logo" className="w-full h-full object-cover" />
+              ) : (
+                <Building2 className="text-gray-600" size={40} />
+              )}
             </div>
             <div className="flex-1">
-              <label className="inline-flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl cursor-pointer transition-colors">
-                <Upload size={18} /><span>Subir</span>
-                <input type="file" accept="image/*" onChange={handleLogoChange} className="hidden" />
+              <label className={`inline-flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-xl cursor-pointer transition-colors ${saving ? 'opacity-50 pointer-events-none' : ''}`}>
+                <Upload size={18} />
+                <span>{saving ? 'Subiendo...' : 'Cambiar Logo'}</span>
+                <input type="file" accept="image/*" onChange={handleLogoChange} className="hidden" disabled={saving} />
               </label>
-              {logoFile && (
-                <div className="mt-3 flex items-center gap-3">
-                  <span className="text-sm text-gray-400 truncate">{logoFile.name}</span>
-                  <Button onClick={handleSaveLogo} loading={saving} size="sm">Guardar</Button>
-                </div>
-              )}
+              <p className="text-xs text-gray-500 mt-2">JPG, PNG. Se redimensiona a 300px.</p>
             </div>
           </div>
         </Card>
       )}
 
+      {/* Info del Gimnasio */}
       {currentGym && (
         <Card>
           <div className="flex items-center gap-4 mb-4">
@@ -169,6 +174,7 @@ const Settings = () => {
         </Card>
       )}
 
+      {/* Info del Usuario */}
       <Card>
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-semibold text-lg" style={{ backgroundColor: 'rgba(var(--color-primary), 1)' }}>
@@ -177,7 +183,9 @@ const Settings = () => {
           <div>
             <h3 className="font-semibold">{userData?.name}</h3>
             <p className="text-sm text-gray-400">{userData?.email}</p>
-            <Badge className="mt-1 badge-primary">{userData?.role === 'sysadmin' ? 'Sysadmin' : userData?.role === 'admin' ? 'Admin' : userData?.role === 'profesor' ? 'Profesor' : 'Alumno'}</Badge>
+            <Badge className="mt-1 badge-primary">
+              {userData?.role === 'sysadmin' ? 'Sysadmin' : userData?.role === 'admin' ? 'Admin' : userData?.role === 'profesor' ? 'Profesor' : 'Alumno'}
+            </Badge>
           </div>
         </div>
       </Card>
