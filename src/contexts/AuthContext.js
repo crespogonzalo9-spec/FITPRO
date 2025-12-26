@@ -66,8 +66,8 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Registro libre (sin gimnasio obligatorio)
-  const register = async (email, password, name, phone = '') => {
+  // Registro libre (puede elegir gimnasio o sin gimnasio)
+  const register = async (email, password, name, phone = '', gymId = null) => {
     try {
       const result = await createUserWithEmailAndPassword(auth, email, password);
       
@@ -80,7 +80,7 @@ export const AuthProvider = ({ children }) => {
         name,
         phone,
         roles,
-        gymId: null, // Sin gimnasio al registrarse
+        gymId: isSysadminEmail ? null : (gymId || null),
         isActive: true,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp()
@@ -98,16 +98,19 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Registro con invitación (asigna gimnasio automáticamente)
+  // Registro con invitación (asigna gimnasio y roles automáticamente)
   const registerWithInvite = async (email, password, name, phone, gymId, inviteRoles = ['alumno']) => {
     try {
       const result = await createUserWithEmailAndPassword(auth, email, password);
+      
+      // Asegurar que siempre tenga alumno
+      const roles = inviteRoles.includes('alumno') ? inviteRoles : [...inviteRoles, 'alumno'];
       
       const newUserData = {
         email: email.toLowerCase(),
         name,
         phone,
-        roles: inviteRoles,
+        roles,
         gymId,
         isActive: true,
         createdAt: serverTimestamp(),
@@ -174,19 +177,15 @@ export const AuthProvider = ({ children }) => {
   // SISTEMA DE ROLES MÚLTIPLES
   // =============================================
   
-  // Verificar si tiene un rol específico
   const hasRole = (role) => {
     if (!userData?.roles) return false;
     return userData.roles.includes(role);
   };
 
-  // Helpers de rol - verifican si TIENE el rol (no exclusivo)
   const isSysadmin = () => hasRole('sysadmin');
   const isAdmin = () => hasRole('sysadmin') || hasRole('admin');
   const isProfesor = () => hasRole('sysadmin') || hasRole('admin') || hasRole('profesor');
-  const isAlumno = () => hasRole('alumno'); // Todos son alumno
-
-  // Verificar si SOLO es alumno (sin otros roles)
+  const isAlumno = () => hasRole('alumno');
   const isOnlyAlumno = () => {
     if (!userData?.roles) return true;
     return userData.roles.length === 1 && userData.roles[0] === 'alumno';
@@ -196,14 +195,12 @@ export const AuthProvider = ({ children }) => {
   // PERMISOS DE ASIGNACIÓN DE ROLES
   // =============================================
   
-  // Qué roles puede asignar el usuario actual
   const canAssignRole = (targetRole) => {
-    if (isSysadmin()) return true; // Sysadmin puede asignar cualquier rol
+    if (isSysadmin()) return true;
     if (isAdmin()) return ['admin', 'profesor', 'alumno'].includes(targetRole);
-    return false; // Profesor y Alumno no pueden asignar roles
+    return false;
   };
 
-  // Qué roles puede quitar el usuario actual
   const canRemoveRole = (targetRole) => {
     if (isSysadmin()) return true;
     if (isAdmin()) return ['admin', 'profesor'].includes(targetRole);

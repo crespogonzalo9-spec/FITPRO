@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { GymProvider } from './contexts/GymContext';
 import { ToastProvider } from './contexts/ToastContext';
@@ -11,6 +11,7 @@ import Register from './components/Auth/Register';
 
 // Layout
 import Layout from './components/Common/Layout';
+import PWAInstallPrompt from './components/Common/PWAInstallPrompt';
 
 // Pages
 import Dashboard from './pages/Dashboard';
@@ -39,8 +40,12 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
   
   if (!user) return <Navigate to="/login" replace />;
   
-  if (allowedRoles && !allowedRoles.includes(userData?.role)) {
-    return <Navigate to="/dashboard" replace />;
+  // Verificar roles múltiples
+  if (allowedRoles && userData?.roles) {
+    const hasPermission = allowedRoles.some(role => userData.roles.includes(role));
+    if (!hasPermission) {
+      return <Navigate to="/dashboard" replace />;
+    }
   }
   
   return children;
@@ -48,9 +53,39 @@ const ProtectedRoute = ({ children, allowedRoles }) => {
 
 const PublicRoute = ({ children }) => {
   const { user, loading } = useAuth();
-  if (loading) return <div className="min-h-screen flex items-center justify-center bg-slate-900"><div className="w-8 h-8 border-2 border-gray-700 border-t-emerald-500 rounded-full animate-spin" /></div>;
+  const location = useLocation();
+  
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center bg-slate-900"><div className="w-8 h-8 border-2 border-gray-700 border-t-emerald-500 rounded-full animate-spin" /></div>;
+  }
+  
   if (user) return <Navigate to="/dashboard" replace />;
+  
   return children;
+};
+
+// Componente para manejar la ruta raíz y detectar invitaciones
+const RootRedirect = () => {
+  const { user, loading } = useAuth();
+  const location = useLocation();
+  
+  if (loading) {
+    return <div className="min-h-screen flex items-center justify-center bg-slate-900"><div className="w-8 h-8 border-2 border-gray-700 border-t-emerald-500 rounded-full animate-spin" /></div>;
+  }
+  
+  // Si hay código de invitación, ir a registro
+  const params = new URLSearchParams(location.search);
+  if (params.get('invite')) {
+    return <Navigate to={`/register${location.search}`} replace />;
+  }
+  
+  // Si está logueado, ir al dashboard
+  if (user) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  
+  // Si no está logueado, ir a login
+  return <Navigate to="/login" replace />;
 };
 
 const ComingSoon = ({ title }) => (
@@ -63,11 +98,15 @@ const ComingSoon = ({ title }) => (
 function AppRoutes() {
   return (
     <Routes>
+      {/* Ruta raíz - detecta invitaciones */}
+      <Route path="/" element={<RootRedirect />} />
+      
+      {/* Auth routes */}
       <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
       <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
       
+      {/* Protected routes */}
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-        <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         
         {/* Sysadmin only */}
@@ -113,6 +152,7 @@ function App() {
           <GymProvider>
             <ThemeProvider>
               <AppRoutes />
+              <PWAInstallPrompt />
             </ThemeProvider>
           </GymProvider>
         </AuthProvider>
