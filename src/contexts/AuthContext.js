@@ -13,7 +13,7 @@ const AuthContext = createContext();
 
 export const useAuth = () => useContext(AuthContext);
 
-// Email del Sysadmin
+// Email del Sysadmin principal (puede nombrar otros sysadmin)
 const SYSADMIN_EMAIL = 'crespo.gonzalo9@gmail.com';
 
 // Jerarquía de roles
@@ -33,7 +33,6 @@ export const AuthProvider = ({ children }) => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         setUser(firebaseUser);
-        // Obtener datos del usuario de Firestore
         const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
         if (userDoc.exists()) {
           setUserData({ id: userDoc.id, ...userDoc.data() });
@@ -73,7 +72,6 @@ export const AuthProvider = ({ children }) => {
       // Determinar rol inicial
       const role = email.toLowerCase() === SYSADMIN_EMAIL.toLowerCase() ? 'sysadmin' : 'alumno';
       
-      // Crear documento de usuario
       const newUserData = {
         email: email.toLowerCase(),
         name,
@@ -131,41 +129,76 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // ============================================
+  // SISTEMA DE PERMISOS - SYSADMIN TIENE TODO
+  // ============================================
+
   // Verificar si tiene un rol específico o superior
   const hasRole = (requiredRole) => {
     if (!userData?.role) return false;
+    // Sysadmin SIEMPRE tiene todos los permisos
+    if (userData.role === 'sysadmin') return true;
     return ROLE_HIERARCHY[userData.role] >= ROLE_HIERARCHY[requiredRole];
   };
 
   // Verificar rol exacto
   const isRole = (role) => userData?.role === role;
 
-  // Helpers de rol
-  const isSysadmin = () => isRole('sysadmin');
-  const isAdmin = () => isRole('admin') || isRole('sysadmin');
-  const isProfesor = () => isRole('profesor');
-  const isAlumno = () => isRole('alumno');
+  // ============================================
+  // HELPERS DE ROL
+  // ============================================
+  
+  // Sysadmin - poder absoluto
+  const isSysadmin = () => userData?.role === 'sysadmin';
+  
+  // Admin o Sysadmin
+  const isAdmin = () => userData?.role === 'admin' || userData?.role === 'sysadmin';
+  
+  // Profesor, Admin o Sysadmin
+  const isProfesor = () => userData?.role === 'profesor' || userData?.role === 'admin' || userData?.role === 'sysadmin';
+  
+  // Solo Alumno (sin poderes especiales)
+  const isAlumno = () => userData?.role === 'alumno';
 
-  // Puede gestionar gimnasios (solo sysadmin)
+  // ============================================
+  // PERMISOS ESPECÍFICOS - SYSADMIN PUEDE TODO
+  // ============================================
+  
+  // Gestionar gimnasios (crear, editar, eliminar)
   const canManageGyms = () => isSysadmin();
   
-  // Puede asignar admins (solo sysadmin)
+  // Asignar/quitar rol sysadmin (solo sysadmin)
+  const canAssignSysadmin = () => isSysadmin();
+  
+  // Asignar/quitar rol admin
   const canAssignAdmin = () => isSysadmin();
   
-  // Puede gestionar profesores (admin o sysadmin)
-  const canManageProfesores = () => hasRole('admin');
+  // Gestionar profesores (asignar/quitar rol)
+  const canManageProfesores = () => isAdmin();
   
-  // Puede gestionar alumnos (admin, profesor)
-  const canManageAlumnos = () => hasRole('profesor');
+  // Gestionar alumnos
+  const canManageAlumnos = () => isProfesor();
   
-  // Puede crear rutinas/WODs
-  const canCreateRoutines = () => hasRole('profesor');
+  // Crear/editar/eliminar rutinas y WODs
+  const canCreateRoutines = () => isProfesor();
   
-  // Puede validar rankings
-  const canValidateRankings = () => hasRole('profesor');
+  // Crear/editar/eliminar eventos del calendario
+  const canManageCalendar = () => isAdmin();
   
-  // Puede crear rankings (solo admin)
-  const canCreateRankings = () => hasRole('admin');
+  // Publicar/editar/eliminar novedades
+  const canManageNews = () => isAdmin();
+  
+  // Validar PRs
+  const canValidateRankings = () => isProfesor();
+  
+  // Crear/gestionar rankings
+  const canCreateRankings = () => isAdmin();
+  
+  // Gestionar invitaciones
+  const canManageInvites = () => isAdmin();
+  
+  // Cambiar tema/logo del gimnasio
+  const canManageGymSettings = () => isAdmin();
 
   const value = {
     user,
@@ -183,12 +216,17 @@ export const AuthProvider = ({ children }) => {
     isProfesor,
     isAlumno,
     canManageGyms,
+    canAssignSysadmin,
     canAssignAdmin,
     canManageProfesores,
     canManageAlumnos,
     canCreateRoutines,
+    canManageCalendar,
+    canManageNews,
     canValidateRankings,
-    canCreateRankings
+    canCreateRankings,
+    canManageInvites,
+    canManageGymSettings
   };
 
   return (
