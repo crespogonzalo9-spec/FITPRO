@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Users, MoreVertical, Edit, Shield, Building2, Crown, Trash2, UserCheck, UserX } from 'lucide-react';
-import { Button, Card, Modal, Input, Select, SearchInput, EmptyState, LoadingState, Badge, Avatar, Dropdown, DropdownItem, ConfirmDialog } from '../components/Common';
+import { Users, MoreVertical, Edit, Shield, Building2, Crown, Trash2 } from 'lucide-react';
+import { Button, Card, Modal, Select, SearchInput, EmptyState, LoadingState, Badge, Avatar, Dropdown, DropdownItem, ConfirmDialog } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { db } from '../firebase';
-import { collection, query, onSnapshot, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, onSnapshot, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { formatDate } from '../utils/helpers';
 
 const UsersPage = () => {
@@ -201,6 +201,7 @@ const UsersPage = () => {
         currentUserId={userData?.id}
         canAssignRole={canAssignRole}
         canRemoveRole={canRemoveRole}
+        isSysadmin={isSysadmin()}
       />
 
       <ConfirmDialog 
@@ -215,7 +216,7 @@ const UsersPage = () => {
   );
 };
 
-const UserModal = ({ isOpen, onClose, onSave, user, gyms, currentUserId, canAssignRole, canRemoveRole }) => {
+const UserModal = ({ isOpen, onClose, onSave, user, gyms, currentUserId, canAssignRole, canRemoveRole, isSysadmin }) => {
   const [form, setForm] = useState({ roles: ['alumno'], gymId: '', isActive: true });
   const [loading, setLoading] = useState(false);
 
@@ -254,6 +255,7 @@ const UserModal = ({ isOpen, onClose, onSave, user, gyms, currentUserId, canAssi
     }
   };
 
+  // Sysadmin puede editarse a sí mismo (pero con advertencia)
   const isEditingSelf = user?.id === currentUserId;
 
   const allRoles = [
@@ -271,13 +273,21 @@ const UserModal = ({ isOpen, onClose, onSave, user, gyms, currentUserId, canAssi
           <p className="font-medium">{user?.email}</p>
         </div>
 
+        {isEditingSelf && (
+          <div className="p-3 bg-yellow-500/20 border border-yellow-500/30 rounded-xl">
+            <p className="text-yellow-400 text-sm">
+              ⚠️ Estás editando tu propio usuario. Tené cuidado al modificar tus roles.
+            </p>
+          </div>
+        )}
+
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">Roles</label>
           <div className="space-y-2">
             {allRoles.map(role => {
               const hasRole = form.roles.includes(role.id);
               const canToggle = role.locked ? false : (hasRole ? canRemoveRole(role.id) : canAssignRole(role.id));
-              const disabled = isEditingSelf || role.locked || !canToggle;
+              const disabled = role.locked || !canToggle;
 
               return (
                 <label 
@@ -304,9 +314,6 @@ const UserModal = ({ isOpen, onClose, onSave, user, gyms, currentUserId, canAssi
               );
             })}
           </div>
-          {isEditingSelf && (
-            <p className="text-xs text-yellow-500 mt-2">No podés modificar tus propios roles</p>
-          )}
         </div>
 
         <Select 
@@ -326,9 +333,8 @@ const UserModal = ({ isOpen, onClose, onSave, user, gyms, currentUserId, canAssi
           </div>
           <button
             type="button"
-            onClick={() => !isEditingSelf && setForm({ ...form, isActive: !form.isActive })}
-            className={`relative w-12 h-6 rounded-full transition-colors ${form.isActive ? 'bg-green-500' : 'bg-gray-600'} ${isEditingSelf ? 'opacity-50' : ''}`}
-            disabled={isEditingSelf}
+            onClick={() => setForm({ ...form, isActive: !form.isActive })}
+            className={`relative w-12 h-6 rounded-full transition-colors ${form.isActive ? 'bg-green-500' : 'bg-gray-600'}`}
           >
             <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform ${form.isActive ? 'left-7' : 'left-1'}`} />
           </button>

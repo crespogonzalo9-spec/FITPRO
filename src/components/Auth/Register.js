@@ -23,6 +23,9 @@ const Register = ({ onToggle }) => {
     const unsubscribe = onSnapshot(collection(db, 'gyms'), (snap) => {
       setGyms(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoadingGyms(false);
+    }, (err) => {
+      console.error('Error loading gyms:', err);
+      setLoadingGyms(false);
     });
     return () => unsubscribe();
   }, []);
@@ -33,37 +36,50 @@ const Register = ({ onToggle }) => {
       const params = new URLSearchParams(window.location.search);
       const code = params.get('invite');
       
-      if (code) {
-        try {
-          const q = query(
-            collection(db, 'invites'),
-            where('code', '==', code),
-            where('status', '==', 'pending')
-          );
-          const snap = await getDocs(q);
-          
-          if (!snap.empty) {
-            const invite = { id: snap.docs[0].id, ...snap.docs[0].data() };
-            
-            // Verificar que no esté expirada
-            if (invite.expiresAt?.toDate() > new Date()) {
-              setInviteData(invite);
-              setForm(prev => ({ 
-                ...prev, 
-                email: invite.email || '',
-                gymId: invite.gymId || ''
-              }));
-            } else {
-              setError('Esta invitación ha expirado');
-            }
-          } else {
-            setError('Código de invitación inválido o ya fue usado');
-          }
-        } catch (err) {
-          console.error(err);
-          setError('Error al verificar invitación');
-        }
+      if (!code) {
+        setCheckingInvite(false);
+        return;
       }
+
+      console.log('[Register] Checking invite code:', code);
+
+      try {
+        // Buscar todas las invitaciones y filtrar manualmente
+        // (evita problemas de índices compuestos en Firebase)
+        const invitesSnap = await getDocs(collection(db, 'invites'));
+        
+        let foundInvite = null;
+        invitesSnap.forEach((doc) => {
+          const data = doc.data();
+          if (data.code === code && data.status === 'pending') {
+            foundInvite = { id: doc.id, ...data };
+          }
+        });
+
+        if (foundInvite) {
+          console.log('[Register] Found invite:', foundInvite);
+          
+          // Verificar que no esté expirada
+          const expiresAt = foundInvite.expiresAt?.toDate?.() || new Date(foundInvite.expiresAt);
+          if (expiresAt > new Date()) {
+            setInviteData(foundInvite);
+            setForm(prev => ({ 
+              ...prev, 
+              email: foundInvite.email || '',
+              gymId: foundInvite.gymId || ''
+            }));
+          } else {
+            setError('Esta invitación ha expirado');
+          }
+        } else {
+          setError('Código de invitación inválido o ya fue usado');
+        }
+      } catch (err) {
+        console.error('[Register] Error checking invite:', err);
+        // No mostrar error, simplemente permitir registro normal
+        console.log('[Register] Proceeding without invite');
+      }
+      
       setCheckingInvite(false);
     };
 
@@ -130,7 +146,7 @@ const Register = ({ onToggle }) => {
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-400">Verificando invitación...</p>
+          <p className="text-gray-400">Verificando...</p>
         </div>
       </div>
     );
@@ -156,13 +172,13 @@ const Register = ({ onToggle }) => {
           {inviteData && (
             <div className="mb-4 p-4 bg-green-500/20 border border-green-500/30 rounded-xl">
               <div className="flex items-center gap-3">
-                <CheckCircle className="text-green-400" size={24} />
+                <CheckCircle className="text-green-400 flex-shrink-0" size={24} />
                 <div>
                   <p className="text-green-400 font-medium">Invitación válida</p>
                   <p className="text-sm text-gray-300 mt-1">
                     Te unirás a <strong>{inviteData.gymName}</strong>
                   </p>
-                  {inviteData.roles && inviteData.roles.length > 1 && (
+                  {inviteData.roles && inviteData.roles.filter(r => r !== 'alumno').length > 0 && (
                     <p className="text-xs text-gray-400 mt-1">
                       Roles: {inviteData.roles.join(', ')}
                     </p>
@@ -245,7 +261,7 @@ const Register = ({ onToggle }) => {
                   <select
                     value={form.gymId}
                     onChange={(e) => setForm({ ...form, gymId: e.target.value })}
-                    className="w-full pl-10 pr-4 py-3 bg-slate-900/50 border border-slate-600 rounded-xl text-white focus:outline-none focus:border-primary appearance-none"
+                    className="w-full pl-10 pr-4 py-3 bg-slate-900/50 border border-slate-600 rounded-xl text-white focus:outline-none focus:border-primary appearance-none cursor-pointer"
                     disabled={loadingGyms}
                   >
                     <option value="">Sin gimnasio (registrarme solo)</option>
