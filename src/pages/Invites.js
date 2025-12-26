@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Mail, Copy, Check, Trash2, Clock, UserPlus, Send, Infinity } from 'lucide-react';
+import { Plus, Mail, Copy, Check, Trash2, Clock, UserPlus, Send, Infinity, Tag } from 'lucide-react';
 import { Button, Card, Modal, Input, Select, EmptyState, LoadingState, Badge, ConfirmDialog } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
@@ -9,7 +9,7 @@ import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc, serverTim
 import { formatDate } from '../utils/helpers';
 
 const Invites = () => {
-  const { userData, canManageInvites } = useAuth();
+  const { userData, canManageInvites, isSysadmin } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
   
@@ -21,10 +21,18 @@ const Invites = () => {
   const [copiedId, setCopiedId] = useState(null);
 
   const canEdit = canManageInvites();
+  
+  // Verificar si el usuario pertenece al gimnasio actual
+  const userBelongsToGym = userData?.gymId === currentGym?.id || isSysadmin();
 
   useEffect(() => {
-    if (!currentGym?.id) { setLoading(false); return; }
+    if (!currentGym?.id) { 
+      setLoading(false); 
+      setInvites([]);
+      return; 
+    }
 
+    // Solo cargar invitaciones del gimnasio seleccionado
     const q = query(collection(db, 'invites'), where('gymId', '==', currentGym.id));
     const unsubscribe = onSnapshot(q, (snap) => {
       const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -38,17 +46,22 @@ const Invites = () => {
     });
 
     return () => unsubscribe();
-  }, [currentGym]);
+  }, [currentGym?.id]);
 
   const generateCode = () => {
     return Math.random().toString(36).substring(2, 8).toUpperCase();
   };
 
   const handleCreate = async (data) => {
+    // Verificar que el usuario pertenece al gimnasio
+    if (!userBelongsToGym) {
+      showError('Solo podés crear invitaciones para tu gimnasio');
+      return;
+    }
+
     try {
       const code = generateCode();
       
-      // Si expiresInDays es 0 o null, es permanente (sin expiración)
       let expiresAt = null;
       if (data.expiresInDays && data.expiresInDays > 0) {
         expiresAt = new Date();
@@ -57,18 +70,18 @@ const Invites = () => {
 
       const inviteData = {
         code,
+        description: data.description?.trim() || code, // Usar código como descripción por defecto
         email: data.email || null,
         roles: data.roles || ['alumno'],
         gymId: currentGym.id,
         gymName: currentGym.name,
         status: 'pending',
-        permanent: !expiresAt, // Marcar si es permanente
+        permanent: !expiresAt,
         createdBy: userData.id,
         createdByName: userData.name,
         createdAt: serverTimestamp()
       };
 
-      // Solo agregar expiresAt si no es permanente
       if (expiresAt) {
         inviteData.expiresAt = expiresAt;
       }
@@ -134,14 +147,36 @@ const Invites = () => {
   };
 
   if (loading) return <LoadingState />;
-  if (!currentGym) return <EmptyState icon={Mail} title="Sin gimnasio" description="Seleccioná un gimnasio primero" />;
+  
+  if (!currentGym) {
+    return (
+      <EmptyState 
+        icon={Mail} 
+        title="Sin gimnasio seleccionado" 
+        description="Seleccioná un gimnasio para ver sus invitaciones" 
+      />
+    );
+  }
+
+  // Verificar si el usuario puede ver/crear invitaciones para este gimnasio
+  if (!userBelongsToGym) {
+    return (
+      <EmptyState 
+        icon={Mail} 
+        title="Sin acceso" 
+        description={`No pertenecés a ${currentGym.name}. Solo podés gestionar invitaciones de tu gimnasio.`}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6 animate-fadeIn">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold">Invitaciones</h1>
-          <p className="text-gray-400">{invites.filter(i => i.status === 'pending').length} pendientes</p>
+          <p className="text-gray-400">
+            {invites.filter(i => i.status === 'pending' && !isExpired(i)).length} pendientes en {currentGym.name}
+          </p>
         </div>
         {canEdit && (
           <Button icon={Plus} onClick={() => setShowModal(true)}>
@@ -168,7 +203,7 @@ const Invites = () => {
         <EmptyState 
           icon={Mail} 
           title="No hay invitaciones" 
-          description="Creá una invitación para sumar miembros al gimnasio"
+          description={`Creá una invitación para sumar miembros a ${currentGym.name}`}
           action={canEdit && <Button icon={Plus} onClick={() => setShowModal(true)}>Crear Invitación</Button>}
         />
       ) : (
@@ -177,10 +212,16 @@ const Invites = () => {
             <Card key={invite.id} className={invite.status === 'used' ? 'opacity-60' : ''}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex-1">
+                  {/* Descripción y código */}
                   <div className="flex items-center gap-3 mb-2">
-                    <code className="px-3 py-1 bg-gray-800 rounded-lg text-primary font-mono text-lg">
-                      {invite.code}
-                    </code>
+                    <div>
+                      <p className="font-medium text-white">
+                        {invite.description !== invite.code ? invite.description : `Invitación ${invite.code}`}
+                      </p>
+                      <code className="text-xs px-2 py-0.5 bg-gray-800 rounded text-primary font-mono">
+                        {invite.code}
+                      </code>
+                    </div>
                     {getStatusBadge(invite)}
                   </div>
                   
@@ -208,6 +249,9 @@ const Invites = () => {
                           }
                         </>
                       )}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Creado por {invite.createdByName} • {formatDate(invite.createdAt)}
                     </p>
                   </div>
                 </div>
@@ -250,7 +294,7 @@ const Invites = () => {
         onClose={() => setShowDelete(false)} 
         onConfirm={handleDelete} 
         title="Eliminar Invitación" 
-        message="¿Eliminar esta invitación?" 
+        message={`¿Eliminar la invitación "${selected?.description || selected?.code}"?`}
         confirmText="Eliminar" 
       />
     </div>
@@ -259,15 +303,21 @@ const Invites = () => {
 
 const InviteModal = ({ isOpen, onClose, onCreate, gymName }) => {
   const { isSysadmin } = useAuth();
-  const [form, setForm] = useState({ email: '', roles: ['alumno'], expiresInDays: 0 });
+  const [form, setForm] = useState({ description: '', email: '', roles: ['alumno'], expiresInDays: 0 });
   const [loading, setLoading] = useState(false);
+
+  // Reset form cuando se abre el modal
+  useEffect(() => {
+    if (isOpen) {
+      setForm({ description: '', email: '', roles: ['alumno'], expiresInDays: 0 });
+    }
+  }, [isOpen]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     await onCreate(form);
     setLoading(false);
-    setForm({ email: '', roles: ['alumno'], expiresInDays: 0 });
   };
 
   const toggleRole = (role) => {
@@ -276,14 +326,12 @@ const InviteModal = ({ isOpen, onClose, onCreate, gymName }) => {
       let newRoles;
       
       if (hasRole) {
-        // No permitir quitar alumno si es el único rol
         if (role === 'alumno' && prev.roles.length === 1) return prev;
         newRoles = prev.roles.filter(r => r !== role);
       } else {
         newRoles = [...prev.roles, role];
       }
       
-      // Siempre incluir alumno
       if (!newRoles.includes('alumno')) {
         newRoles.push('alumno');
       }
@@ -310,6 +358,17 @@ const InviteModal = ({ isOpen, onClose, onCreate, gymName }) => {
           <p className="text-sm text-gray-400">Gimnasio</p>
           <p className="font-medium text-primary">{gymName}</p>
         </div>
+
+        {/* Descripción */}
+        <Input 
+          label="Descripción (opcional)" 
+          value={form.description} 
+          onChange={e => setForm({ ...form, description: e.target.value })} 
+          placeholder="Ej: Invitación para Juan, Promo Enero, etc."
+        />
+        <p className="text-xs text-gray-500 -mt-2">
+          Si no completás, se usará el código como identificador
+        </p>
 
         <Input 
           label="Email (opcional)" 
