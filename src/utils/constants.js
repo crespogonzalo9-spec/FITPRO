@@ -54,8 +54,8 @@ export const WOD_TYPES = [
 
 // Tipos de ranking
 export const RANKING_TYPES = [
-  { id: 'exercise', name: 'Por Ejercicio', description: 'Ranking de un ejercicio específico (ej: Back Squat 1RM)' },
-  { id: 'wod', name: 'Por WOD', description: 'Ranking de un WOD específico (ej: Fran)' },
+  { id: 'exercise', name: 'Por Ejercicio', description: 'Ranking de un ejercicio específico' },
+  { id: 'wod', name: 'Por WOD', description: 'Ranking de un WOD específico' },
   { id: 'routine', name: 'Por Rutina', description: 'Ranking de una rutina completa' }
 ];
 
@@ -98,6 +98,16 @@ export const NAV_ROUTES = {
     { path: '/dashboard', name: 'Dashboard', icon: 'LayoutDashboard' },
     { path: '/gyms', name: 'Gimnasios', icon: 'Building2' },
     { path: '/users', name: 'Usuarios', icon: 'Users' },
+    { path: '/members', name: 'Alumnos', icon: 'Users' },
+    { path: '/profesores', name: 'Profesores', icon: 'UserCheck' },
+    { path: '/classes', name: 'Clases', icon: 'Calendar' },
+    { path: '/routines', name: 'Rutinas', icon: 'ClipboardList' },
+    { path: '/wods', name: 'WODs', icon: 'Flame' },
+    { path: '/calendar', name: 'Calendario', icon: 'CalendarDays' },
+    { path: '/news', name: 'Novedades', icon: 'Megaphone' },
+    { path: '/rankings', name: 'Rankings', icon: 'Trophy' },
+    { path: '/prs', name: 'Marcas Personales', icon: 'TrendingUp' },
+    { path: '/invites', name: 'Invitaciones', icon: 'Link' },
     { path: '/settings', name: 'Configuración', icon: 'Settings' }
   ],
   admin: [
