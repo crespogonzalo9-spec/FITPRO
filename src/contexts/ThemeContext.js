@@ -18,93 +18,85 @@ export const COLOR_PALETTES = [
 ];
 
 export const ThemeProvider = ({ children }) => {
-  const [isDark, setIsDark] = useState(() => {
-    const saved = localStorage.getItem('fitpro-dark-mode');
-    return saved !== null ? saved === 'true' : true;
-  });
-  const [paletteId, setPaletteId] = useState(() => {
-    return localStorage.getItem('fitpro-palette') || 'emerald';
-  });
+  const [isDark, setIsDark] = useState(true);
+  const [paletteId, setPaletteId] = useState('emerald');
   const [gymLogo, setGymLogo] = useState(null);
-  const [gymId, setGymId] = useState(null);
+  const [currentGymId, setCurrentGymId] = useState(null);
 
-  // Escuchar cambios del gimnasio
+  // Escuchar cambios del gimnasio actual
   useEffect(() => {
-    if (!gymId) return;
+    if (!currentGymId) return;
 
-    const unsubscribe = onSnapshot(doc(db, 'gyms', gymId), (docSnap) => {
+    const unsubscribe = onSnapshot(doc(db, 'gyms', currentGymId), (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data();
+        // Aplicar paleta del gimnasio
         if (data.colorPalette) {
           setPaletteId(data.colorPalette);
-          localStorage.setItem('fitpro-palette', data.colorPalette);
         }
+        // Aplicar modo oscuro/claro del gimnasio
         if (data.darkMode !== undefined) {
           setIsDark(data.darkMode);
-          localStorage.setItem('fitpro-dark-mode', data.darkMode.toString());
         }
+        // Logo del gimnasio
         if (data.logo) {
           setGymLogo(data.logo);
+        } else {
+          setGymLogo(null);
         }
       }
     });
 
     return () => unsubscribe();
-  }, [gymId]);
+  }, [currentGymId]);
 
-  // Aplicar tema al DOM
+  // Aplicar estilos al DOM
   useEffect(() => {
     const palette = COLOR_PALETTES.find(p => p.id === paletteId) || COLOR_PALETTES[0];
     const root = document.documentElement;
     
-    // Aplicar color primario como CSS variable
+    // CSS Variables para el color primario
     root.style.setProperty('--color-primary', palette.primary);
     root.style.setProperty('--color-primary-hex', palette.hex);
     
-    // Aplicar modo oscuro/claro
+    // Modo oscuro/claro
     if (isDark) {
       root.classList.add('dark');
       root.classList.remove('light');
-      document.body.style.backgroundColor = '#0F172A';
-      document.body.style.color = '#F8FAFC';
     } else {
       root.classList.add('light');
       root.classList.remove('dark');
-      document.body.style.backgroundColor = '#F8FAFC';
-      document.body.style.color = '#1E293B';
     }
   }, [isDark, paletteId]);
 
-  const toggleTheme = () => {
-    const newValue = !isDark;
-    setIsDark(newValue);
-    localStorage.setItem('fitpro-dark-mode', newValue.toString());
-  };
+  const toggleTheme = () => setIsDark(!isDark);
 
-  const changePalette = (newPaletteId) => {
-    setPaletteId(newPaletteId);
-    localStorage.setItem('fitpro-palette', newPaletteId);
-  };
-
-  const saveGymTheme = async (targetGymId, newPaletteId, newDarkMode) => {
+  // Guardar configuración del gimnasio en Firebase
+  const saveGymTheme = async (gymId, newPaletteId, newDarkMode) => {
     try {
-      await updateDoc(doc(db, 'gyms', targetGymId), {
+      await updateDoc(doc(db, 'gyms', gymId), {
         colorPalette: newPaletteId,
         darkMode: newDarkMode
       });
       return { success: true };
     } catch (error) {
+      console.error('Error saving theme:', error);
       return { success: false, error: error.message };
     }
   };
 
-  const saveGymLogo = async (targetGymId, logoUrl) => {
+  const saveGymLogo = async (gymId, logoUrl) => {
     try {
-      await updateDoc(doc(db, 'gyms', targetGymId), { logo: logoUrl });
+      await updateDoc(doc(db, 'gyms', gymId), { logo: logoUrl });
       return { success: true };
     } catch (error) {
       return { success: false, error: error.message };
     }
+  };
+
+  // Función para que el Layout actualice el gymId actual
+  const setGymId = (gymId) => {
+    setCurrentGymId(gymId);
   };
 
   const colorPalette = COLOR_PALETTES.find(p => p.id === paletteId) || COLOR_PALETTES[0];
@@ -114,8 +106,8 @@ export const ThemeProvider = ({ children }) => {
       isDark,
       toggleTheme,
       paletteId,
+      setPaletteId,
       colorPalette,
-      changePalette,
       gymLogo,
       setGymId,
       saveGymTheme,

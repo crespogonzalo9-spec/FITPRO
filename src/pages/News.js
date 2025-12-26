@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Megaphone, MoreVertical, Edit, Trash2, Image as ImageIcon, Bell } from 'lucide-react';
-import { Button, Card, Modal, Input, Textarea, EmptyState, LoadingState, ConfirmDialog, Avatar, Dropdown, DropdownItem } from '../components/Common';
+import { Plus, Megaphone, MoreVertical, Edit, Trash2, Image as ImageIcon, Link as LinkIcon, Bell, ExternalLink } from 'lucide-react';
+import { Button, Card, Modal, Input, Textarea, EmptyState, LoadingState, ConfirmDialog, Avatar, Dropdown, DropdownItem, Badge } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
@@ -13,6 +13,7 @@ const News = () => {
   const { userData, isAdmin } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
+  
   const [news, setNews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -35,8 +36,15 @@ const News = () => {
       setNews(snap.docs.map(d => ({ id: d.id, ...d.data() })));
       setLoading(false);
     }, (error) => {
-      console.error('Error loading news:', error);
-      setLoading(false);
+      console.error('Error:', error);
+      // Si falla por falta de índice, cargar sin orderBy
+      const qSimple = query(collection(db, 'news'), where('gymId', '==', currentGym.id));
+      onSnapshot(qSimple, (snap) => {
+        const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        items.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+        setNews(items);
+        setLoading(false);
+      });
     });
 
     return () => unsubscribe();
@@ -46,6 +54,7 @@ const News = () => {
     try {
       let imageUrl = data.imageUrl || null;
 
+      // Subir imagen si hay una nueva
       if (imageFile) {
         const imageRef = ref(storage, `news/${currentGym.id}/${Date.now()}_${imageFile.name}`);
         await uploadBytes(imageRef, imageFile);
@@ -55,6 +64,8 @@ const News = () => {
       const newsData = {
         title: data.title,
         body: data.body,
+        link: data.link || null,
+        linkText: data.linkText || null,
         imageUrl,
         gymId: currentGym.id,
         authorId: userData.id,
@@ -67,9 +78,7 @@ const News = () => {
       } else {
         await addDoc(collection(db, 'news'), { ...newsData, createdAt: serverTimestamp() });
         success('Novedad publicada');
-        
-        // Aquí se enviaría push notification (requiere Firebase Cloud Messaging configurado)
-        // sendPushToGymMembers(currentGym.id, data.title, data.body);
+        // Aquí iría la integración con Firebase Cloud Messaging para push notifications
       }
 
       setShowModal(false);
@@ -91,6 +100,24 @@ const News = () => {
     }
   };
 
+  // Detectar URLs en el texto y convertirlas en links
+  const renderTextWithLinks = (text) => {
+    if (!text) return null;
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    const parts = text.split(urlRegex);
+    
+    return parts.map((part, i) => {
+      if (part.match(urlRegex)) {
+        return (
+          <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline break-all">
+            {part}
+          </a>
+        );
+      }
+      return part;
+    });
+  };
+
   if (loading) return <LoadingState />;
   if (!currentGym) return <EmptyState icon={Megaphone} title="Sin gimnasio" />;
 
@@ -108,14 +135,14 @@ const News = () => {
         )}
       </div>
 
-      {/* Info sobre notificaciones */}
+      {/* Info push notifications */}
       {canPublish && (
         <Card className="bg-blue-500/10 border-blue-500/30">
           <div className="flex items-center gap-3">
-            <Bell className="text-blue-400" size={24} />
+            <Bell className="text-blue-400 flex-shrink-0" size={24} />
             <div>
               <p className="font-medium text-blue-400">Notificaciones Push</p>
-              <p className="text-sm text-gray-400">Al publicar una novedad, se enviará una notificación a todos los miembros del gimnasio.</p>
+              <p className="text-sm text-gray-400">Al publicar, se enviará una notificación a todos los miembros.</p>
             </div>
           </div>
         </Card>
@@ -132,6 +159,7 @@ const News = () => {
         <div className="space-y-4">
           {news.map(item => (
             <Card key={item.id}>
+              {/* Header */}
               <div className="flex justify-between items-start mb-3">
                 <div className="flex items-center gap-3">
                   <Avatar name={item.authorName} size="md" />
@@ -148,11 +176,28 @@ const News = () => {
                 )}
               </div>
 
+              {/* Título */}
               <h3 className="text-lg font-semibold mb-2">{item.title}</h3>
-              <p className="text-gray-300 whitespace-pre-wrap">{item.body}</p>
+              
+              {/* Cuerpo */}
+              <p className="text-gray-300 whitespace-pre-wrap mb-3">{renderTextWithLinks(item.body)}</p>
 
+              {/* Link destacado */}
+              {item.link && (
+                <a 
+                  href={item.link} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-primary-20 text-primary rounded-xl hover:bg-primary-30 transition-colors mb-3"
+                >
+                  <ExternalLink size={16} />
+                  {item.linkText || 'Ver más'}
+                </a>
+              )}
+
+              {/* Imagen */}
               {item.imageUrl && (
-                <div className="mt-4 rounded-xl overflow-hidden">
+                <div className="rounded-xl overflow-hidden">
                   <img src={item.imageUrl} alt={item.title} className="w-full max-h-96 object-cover" />
                 </div>
               )}
@@ -180,17 +225,23 @@ const News = () => {
 };
 
 const NewsModal = ({ isOpen, onClose, onSave, news }) => {
-  const [form, setForm] = useState({ title: '', body: '', imageUrl: '' });
+  const [form, setForm] = useState({ title: '', body: '', link: '', linkText: '', imageUrl: '' });
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (news) {
-      setForm({ title: news.title || '', body: news.body || '', imageUrl: news.imageUrl || '' });
+      setForm({ 
+        title: news.title || '', 
+        body: news.body || '', 
+        link: news.link || '',
+        linkText: news.linkText || '',
+        imageUrl: news.imageUrl || '' 
+      });
       setImagePreview(news.imageUrl || null);
     } else {
-      setForm({ title: '', body: '', imageUrl: '' });
+      setForm({ title: '', body: '', link: '', linkText: '', imageUrl: '' });
       setImagePreview(null);
     }
     setImageFile(null);
@@ -231,11 +282,30 @@ const NewsModal = ({ isOpen, onClose, onSave, news }) => {
           label="Contenido *" 
           value={form.body} 
           onChange={e => setForm({ ...form, body: e.target.value })} 
-          rows={5}
-          placeholder="Escribe el contenido..."
+          rows={6}
+          placeholder="Escribe el contenido de la publicación...&#10;&#10;Podés incluir URLs que se convertirán automáticamente en links."
           required
         />
 
+        {/* Link destacado */}
+        <div className="p-3 bg-gray-800/50 rounded-xl space-y-3">
+          <div className="flex items-center gap-2 text-sm text-gray-400">
+            <LinkIcon size={16} />
+            <span>Enlace destacado (opcional)</span>
+          </div>
+          <Input 
+            value={form.link} 
+            onChange={e => setForm({ ...form, link: e.target.value })} 
+            placeholder="https://ejemplo.com"
+          />
+          <Input 
+            value={form.linkText} 
+            onChange={e => setForm({ ...form, linkText: e.target.value })} 
+            placeholder="Texto del botón (ej: Inscribirse, Ver más)"
+          />
+        </div>
+
+        {/* Imagen */}
         <div>
           <label className="block text-sm font-medium text-gray-300 mb-2">Imagen (opcional)</label>
           <div className="flex items-center gap-4">

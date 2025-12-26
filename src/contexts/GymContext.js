@@ -9,13 +9,13 @@ export const useGym = () => useContext(GymContext);
 
 export const GymProvider = ({ children }) => {
   const { userData, isSysadmin } = useAuth();
-  const [currentGym, setCurrentGym] = useState(null);
-  const [gyms, setGyms] = useState([]); // Para sysadmin que ve todos
+  const [currentGym, setCurrentGymState] = useState(null);
+  const [gyms, setGyms] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!userData) {
-      setCurrentGym(null);
+      setCurrentGymState(null);
       setGyms([]);
       setLoading(false);
       return;
@@ -23,13 +23,20 @@ export const GymProvider = ({ children }) => {
 
     // Sysadmin puede ver todos los gimnasios
     if (isSysadmin()) {
-      const q = query(collection(db, 'gyms'), where('isActive', '==', true));
+      const q = query(collection(db, 'gyms'));
       const unsubscribe = onSnapshot(q, (snapshot) => {
         const gymList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         setGyms(gymList);
-        // Seleccionar el primero si no hay ninguno seleccionado
-        if (!currentGym && gymList.length > 0) {
-          setCurrentGym(gymList[0]);
+        
+        // Recuperar gimnasio guardado en localStorage o seleccionar el primero
+        const savedGymId = localStorage.getItem('fitpro-selected-gym');
+        const savedGym = gymList.find(g => g.id === savedGymId);
+        
+        if (savedGym) {
+          setCurrentGymState(savedGym);
+        } else if (!currentGym && gymList.length > 0) {
+          setCurrentGymState(gymList[0]);
+          localStorage.setItem('fitpro-selected-gym', gymList[0].id);
         }
         setLoading(false);
       });
@@ -38,28 +45,31 @@ export const GymProvider = ({ children }) => {
 
     // Otros usuarios ven solo su gimnasio asignado
     if (userData.gymId) {
-      const fetchGym = async () => {
-        const gymDoc = await getDoc(doc(db, 'gyms', userData.gymId));
-        if (gymDoc.exists()) {
-          setCurrentGym({ id: gymDoc.id, ...gymDoc.data() });
+      const unsubscribe = onSnapshot(doc(db, 'gyms', userData.gymId), (docSnap) => {
+        if (docSnap.exists()) {
+          setCurrentGymState({ id: docSnap.id, ...docSnap.data() });
         }
         setLoading(false);
-      };
-      fetchGym();
+      });
+      return () => unsubscribe();
     } else {
       setLoading(false);
     }
-  }, [userData]);
+  }, [userData, isSysadmin]);
 
-  const selectGym = (gym) => {
-    setCurrentGym(gym);
+  // Función para cambiar de gimnasio (solo sysadmin)
+  const setCurrentGym = (gym) => {
+    setCurrentGymState(gym);
+    if (gym?.id) {
+      localStorage.setItem('fitpro-selected-gym', gym.id);
+    }
   };
 
   const value = {
     currentGym,
+    setCurrentGym,
     gyms,
-    loading,
-    selectGym
+    loading
   };
 
   return (
