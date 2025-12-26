@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Megaphone, MoreVertical, Edit, Trash2, Image as ImageIcon, Link as LinkIcon, ExternalLink, X } from 'lucide-react';
-import { Button, Card, Modal, Input, Textarea, EmptyState, LoadingState, ConfirmDialog, Avatar, Dropdown, DropdownItem } from '../components/Common';
+import { Button, Card, Modal, Input, Textarea, EmptyState, LoadingState, ConfirmDialog, Avatar, Dropdown, DropdownItem , GymRequired } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
@@ -9,7 +9,7 @@ import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc
 import { formatRelativeDate } from '../utils/helpers';
 import { compressAndConvertToBase64 } from '../utils/imageUtils';
 
-const News = () => {
+const NewsContent = () => {
   const { userData, canManageNews } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
@@ -244,4 +244,5 @@ const NewsModal = ({ isOpen, onClose, onSave, news }) => {
   );
 };
 
+const News = () => (<GymRequired><NewsContent /></GymRequired>);
 export default News;

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Trophy, Plus, TrendingUp, Calendar, Edit, Trash2, MoreVertical, CheckCircle, Clock, AlertCircle, Filter } from 'lucide-react';
-import { Button, Card, Modal, Input, Textarea, Select, SearchInput, EmptyState, LoadingState, Badge, ConfirmDialog, Dropdown, DropdownItem, Avatar } from '../components/Common';
+import { Button, Card, Modal, Input, Textarea, Select, SearchInput, EmptyState, LoadingState, Badge, ConfirmDialog, Dropdown, DropdownItem, Avatar , GymRequired } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
@@ -16,7 +16,7 @@ const MEASURE_LABELS = {
   calories: 'cal'
 };
 
-const PRs = () => {
+const PRsContent = () => {
   const { userData, isProfesor, isSysadmin } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
@@ -582,4 +582,5 @@ const PRModal = ({ isOpen, onClose, onSave, pr, exercises }) => {
   );
 };
 
+const PRs = () => (<GymRequired><PRsContent /></GymRequired>);
 export default PRs;

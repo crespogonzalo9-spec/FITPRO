@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Calendar, Clock, Users, MoreVertical, Edit, Trash2, UserPlus } from 'lucide-react';
-import { Button, Card, Modal, Input, Select, EmptyState, LoadingState, ConfirmDialog, Badge, Dropdown, DropdownItem, Checkbox } from '../components/Common';
+import { Button, Card, Modal, Input, Select, EmptyState, LoadingState, ConfirmDialog, Badge, Dropdown, DropdownItem, Checkbox , GymRequired } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
@@ -8,7 +8,7 @@ import { db } from '../firebase';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, getDocs } from 'firebase/firestore';
 import { DAYS_OF_WEEK } from '../utils/constants';
 
-const Classes = () => {
+const ClassesContent = () => {
   const { userData, canManageClasses, isProfesor } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
@@ -161,4 +161,5 @@ const ClassModal = ({ isOpen, onClose, onSave, classData, profesores }) => {
   );
 };
 
+const Classes = () => (<GymRequired><ClassesContent /></GymRequired>);
 export default Classes;

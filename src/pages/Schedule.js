@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, Clock, Users, Check, X } from 'lucide-react';
-import { Card, Button, Badge, LoadingState, EmptyState, Modal } from '../components/Common';
+import { Card, Button, Badge, LoadingState, EmptyState, Modal , GymRequired } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
@@ -8,7 +8,7 @@ import { db } from '../firebase';
 import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp, getDocs, updateDoc, increment } from 'firebase/firestore';
 import { DAYS_OF_WEEK } from '../utils/constants';
 
-const Schedule = () => {
+const ScheduleContent = () => {
   const { userData } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
@@ -136,4 +136,5 @@ const Schedule = () => {
   );
 };
 
+const Schedule = () => (<GymRequired><ScheduleContent /></GymRequired>);
 export default Schedule;

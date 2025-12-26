@@ -4,10 +4,10 @@ import {
   LayoutDashboard, Users, Calendar, Dumbbell, ClipboardList,
   Settings, LogOut, Building2, UserCheck, Flame, Trophy,
   TrendingUp, CheckCircle, CheckSquare, User, X, ChevronDown,
-  CalendarDays, Megaphone, Link
+  CalendarDays, Megaphone, Link, Globe
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { useGym } from '../../contexts/GymContext';
+import { useGym, ALL_GYMS_ID } from '../../contexts/GymContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { Avatar, Badge } from './index';
 import { NAV_ROUTES } from '../../utils/constants';
@@ -21,7 +21,7 @@ const iconMap = {
 
 const Sidebar = ({ isOpen, setIsOpen }) => {
   const { userData, logout, isSysadmin } = useAuth();
-  const { currentGym, availableGyms, selectGym } = useGym();
+  const { currentGym, availableGyms, selectGym, viewAllGyms } = useGym();
   const { gymLogo } = useTheme();
   const navigate = useNavigate();
   const [showGymSelector, setShowGymSelector] = useState(false);
@@ -49,6 +49,11 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
     if (userData.roles.includes('admin')) return 'admin';
     if (userData.roles.includes('profesor')) return 'profesor';
     return 'alumno';
+  };
+
+  const getSelectorLabel = () => {
+    if (viewAllGyms) return '🌐 Todos los gimnasios';
+    return currentGym?.name || 'Seleccionar gimnasio';
   };
 
   return (
@@ -87,19 +92,36 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
               <div className="mt-4 relative">
                 <button
                   onClick={() => setShowGymSelector(!showGymSelector)}
-                  className="w-full flex items-center justify-between px-3 py-2 bg-gray-800 rounded-xl hover:bg-gray-700 transition-colors"
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl transition-colors ${
+                    viewAllGyms 
+                      ? 'bg-blue-500/20 border border-blue-500/50 text-blue-400' 
+                      : 'bg-gray-800 hover:bg-gray-700'
+                  }`}
                 >
-                  <span className="text-sm truncate">{currentGym?.name || 'Seleccionar gimnasio'}</span>
+                  <span className="text-sm truncate">{getSelectorLabel()}</span>
                   <ChevronDown size={16} className={`transition-transform ${showGymSelector ? 'rotate-180' : ''}`} />
                 </button>
                 {showGymSelector && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-gray-800 rounded-xl shadow-lg border border-gray-700 max-h-48 overflow-y-auto z-50">
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-gray-800 rounded-xl shadow-lg border border-gray-700 max-h-64 overflow-y-auto z-50">
+                    {/* Opción "Todos los gimnasios" */}
+                    <button
+                      onClick={() => { selectGym(ALL_GYMS_ID); setShowGymSelector(false); }}
+                      className={`w-full text-left px-3 py-2 hover:bg-gray-700 text-sm flex items-center gap-2 border-b border-gray-700 ${
+                        viewAllGyms ? 'text-blue-400 bg-blue-500/10' : ''
+                      }`}
+                    >
+                      <Globe size={14} />
+                      <span>Todos los gimnasios</span>
+                    </button>
+                    
+                    {/* Lista de gimnasios */}
                     {availableGyms.map(gym => (
                       <button
                         key={gym.id}
                         onClick={() => { selectGym(gym.id); setShowGymSelector(false); }}
-                        className={`w-full text-left px-3 py-2 hover:bg-gray-700 text-sm ${currentGym?.id === gym.id ? 'text-primary' : ''}`}
-                        style={currentGym?.id === gym.id ? { color: 'rgba(var(--color-primary), 1)' } : {}}
+                        className={`w-full text-left px-3 py-2 hover:bg-gray-700 text-sm ${
+                          !viewAllGyms && currentGym?.id === gym.id ? 'text-primary bg-primary/10' : ''
+                        }`}
                       >
                         {gym.name}
                       </button>

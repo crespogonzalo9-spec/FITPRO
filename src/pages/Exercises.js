@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Dumbbell, Plus, Search, Edit, Trash2, Filter, MoreVertical, Zap, Clock, Hash, Weight } from 'lucide-react';
-import { Button, Card, Modal, Input, Textarea, Select, SearchInput, EmptyState, LoadingState, Badge, ConfirmDialog, Dropdown, DropdownItem } from '../components/Common';
+import { Button, Card, Modal, Input, Textarea, Select, SearchInput, EmptyState, LoadingState, Badge, ConfirmDialog, Dropdown, DropdownItem , GymRequired } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
@@ -32,7 +32,7 @@ const EQUIPMENT = [
   'Soga de saltar', 'Banda elástica', 'TRX', 'Peso corporal', 'Ninguno'
 ];
 
-const Exercises = () => {
+const ExercisesContent = () => {
   const { userData, isProfesor, isSysadmin } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
@@ -458,4 +458,5 @@ const ExerciseModal = ({ isOpen, onClose, onSave, exercise }) => {
   );
 };
 
+const Exercises = () => (<GymRequired><ExercisesContent /></GymRequired>);
 export default Exercises;

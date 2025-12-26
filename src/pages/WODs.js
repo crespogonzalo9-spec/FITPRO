@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Flame, MoreVertical, Edit, Trash2, Users, Lock, Clock, Zap, Globe } from 'lucide-react';
-import { Button, Card, Modal, Input, Select, Textarea, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Dropdown, DropdownItem, Avatar } from '../components/Common';
+import { Button, Card, Modal, Input, Select, Textarea, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Dropdown, DropdownItem, Avatar, GymRequired } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
@@ -8,7 +8,7 @@ import { db } from '../firebase';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { WOD_TYPES, BENCHMARK_WODS } from '../utils/constants';
 
-const WODs = () => {
+const WODsContent = () => {
   const { userData, canCreateRoutines, isOnlyAlumno } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
@@ -570,5 +570,12 @@ const ViewWODModal = ({ isOpen, onClose, wod, getTypeName, getClassName, getMemb
     </Modal>
   );
 };
+
+// Wrapper con GymRequired
+const WODs = () => (
+  <GymRequired>
+    <WODsContent />
+  </GymRequired>
+);
 
 export default WODs;

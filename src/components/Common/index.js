@@ -195,3 +195,6 @@ export const StatCard = ({ icon: Icon, label, value, color = 'emerald' }) => {
     </Card>
   );
 };
+
+// Re-export GymRequired
+export { default as GymRequired } from './GymRequired';

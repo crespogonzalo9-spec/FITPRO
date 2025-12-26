@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Mail, Copy, Check, Trash2, Clock, UserPlus, Send, Infinity, Tag } from 'lucide-react';
-import { Button, Card, Modal, Input, Select, EmptyState, LoadingState, Badge, ConfirmDialog } from '../components/Common';
+import { Button, Card, Modal, Input, Select, EmptyState, LoadingState, Badge, ConfirmDialog , GymRequired } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
@@ -8,7 +8,7 @@ import { db } from '../firebase';
 import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { formatDate } from '../utils/helpers';
 
-const Invites = () => {
+const InvitesContent = () => {
   const { userData, canManageInvites, isSysadmin } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
@@ -435,4 +435,5 @@ const InviteModal = ({ isOpen, onClose, onCreate, gymName }) => {
   );
 };
 
+const Invites = () => (<GymRequired><InvitesContent /></GymRequired>);
 export default Invites;

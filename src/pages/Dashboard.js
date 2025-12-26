@@ -1,29 +1,35 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Calendar, Dumbbell, TrendingUp, Clock, ChevronRight, Flame, Award, Building2, Mail, UserPlus } from 'lucide-react';
+import { Users, Calendar, Dumbbell, TrendingUp, Clock, ChevronRight, Flame, Award, Building2, Mail, UserPlus, Globe } from 'lucide-react';
 import { Card, Badge, Avatar, EmptyState, LoadingState, Button } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { db } from '../firebase';
-import { collection, query, where, onSnapshot, limit, orderBy } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, getDocs } from 'firebase/firestore';
 import { Link } from 'react-router-dom';
 import { getRoleName, getRolesNames, formatRelativeDate, formatDate } from '../utils/helpers';
 
 const Dashboard = () => {
   const { userData, isSysadmin, isAdmin, isProfesor, isAlumno } = useAuth();
-  const { currentGym, availableGyms, selectGym } = useGym();
+  const { currentGym, availableGyms, selectGym, viewAllGyms } = useGym();
   
-  const [stats, setStats] = useState({ members: 0, classes: 0, wods: 0, prs: 0 });
+  const [stats, setStats] = useState({ members: 0, classes: 0, wods: 0, prs: 0, gyms: 0 });
   const [recentWods, setRecentWods] = useState([]);
   const [upcomingEvents, setUpcomingEvents] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Modo "Todos los gimnasios" para sysadmin
+    if (viewAllGyms && isSysadmin()) {
+      loadAllGymsStats();
+      return;
+    }
+
     if (!currentGym?.id) {
       setLoading(false);
       return;
     }
 
-    // Cargar estadísticas
+    // Cargar estadísticas del gimnasio seleccionado
     const membersQuery = query(collection(db, 'users'), where('gymId', '==', currentGym.id));
     const classesQuery = query(collection(db, 'classes'), where('gymId', '==', currentGym.id));
     const wodsQuery = query(collection(db, 'wods'), where('gymId', '==', currentGym.id));
@@ -59,10 +65,120 @@ const Dashboard = () => {
     setLoading(false);
 
     return () => unsubs.forEach(u => u());
-  }, [currentGym]);
+  }, [currentGym, viewAllGyms, isSysadmin]);
 
-  // Sysadmin sin gimnasio seleccionado
-  if (isSysadmin() && !currentGym) {
+  const loadAllGymsStats = async () => {
+    try {
+      const [usersSnap, classesSnap, wodsSnap, prsSnap, gymsSnap] = await Promise.all([
+        getDocs(collection(db, 'users')),
+        getDocs(collection(db, 'classes')),
+        getDocs(collection(db, 'wods')),
+        getDocs(query(collection(db, 'prs'), where('status', '==', 'validated'))),
+        getDocs(collection(db, 'gyms'))
+      ]);
+
+      setStats({
+        members: usersSnap.size,
+        classes: classesSnap.size,
+        wods: wodsSnap.size,
+        prs: prsSnap.size,
+        gyms: gymsSnap.size
+      });
+
+      // WODs recientes de todos los gimnasios
+      const wods = wodsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      wods.sort((a, b) => (b.createdAt?.toDate?.() || 0) - (a.createdAt?.toDate?.() || 0));
+      setRecentWods(wods.slice(0, 5));
+
+      setLoading(false);
+    } catch (err) {
+      console.error('Error loading all gyms stats:', err);
+      setLoading(false);
+    }
+  };
+
+  // Sysadmin viendo todos los gimnasios
+  if (viewAllGyms && isSysadmin()) {
+    if (loading) return <LoadingState />;
+    
+    return (
+      <div className="space-y-6 animate-fadeIn">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 className="text-2xl font-bold">Hola, {userData?.name} 👑</h1>
+            <p className="text-gray-400 flex items-center gap-2">
+              <Globe size={16} className="text-blue-400" />
+              Vista global - Todos los gimnasios
+            </p>
+          </div>
+          <Badge className="bg-blue-500/20 text-blue-400">Sysadmin</Badge>
+        </div>
+
+        {/* Stats globales */}
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+          <StatCard icon={Building2} label="Gimnasios" value={stats.gyms} color="yellow" />
+          <StatCard icon={Users} label="Usuarios" value={stats.members} color="blue" />
+          <StatCard icon={Calendar} label="Clases" value={stats.classes} color="green" />
+          <StatCard icon={Flame} label="WODs" value={stats.wods} color="orange" />
+          <StatCard icon={Award} label="PRs Validados" value={stats.prs} color="purple" />
+        </div>
+
+        {/* Lista de gimnasios */}
+        <Card>
+          <h3 className="font-semibold mb-4">Gimnasios ({availableGyms.length})</h3>
+          <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+            {availableGyms.map(gym => (
+              <div 
+                key={gym.id}
+                onClick={() => selectGym(gym.id)}
+                className="flex items-center gap-4 p-3 bg-gray-800/50 rounded-xl cursor-pointer hover:bg-gray-700/50 transition-colors"
+              >
+                <div className="w-12 h-12 rounded-xl bg-gray-700 flex items-center justify-center overflow-hidden">
+                  {gym.logo ? (
+                    <img src={gym.logo} alt={gym.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <Building2 className="text-gray-400" size={20} />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium truncate">{gym.name}</p>
+                  <p className="text-xs text-gray-500 truncate">{gym.address || 'Sin dirección'}</p>
+                </div>
+                <ChevronRight size={16} className="text-gray-500" />
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        {/* WODs Recientes globales */}
+        <Card>
+          <h3 className="font-semibold mb-4">WODs Recientes (Global)</h3>
+          {recentWods.length === 0 ? (
+            <p className="text-gray-500 text-center py-4">No hay WODs</p>
+          ) : (
+            <div className="space-y-3">
+              {recentWods.map(wod => (
+                <div key={wod.id} className="flex items-center gap-4 p-3 bg-gray-800/50 rounded-xl">
+                  <div className="w-10 h-10 bg-orange-500/20 rounded-lg flex items-center justify-center">
+                    <Flame className="text-orange-500" size={20} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium truncate">{wod.name}</p>
+                    <p className="text-xs text-gray-500">
+                      {availableGyms.find(g => g.id === wod.gymId)?.name || 'Gimnasio'} • {formatRelativeDate(wod.createdAt)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+    );
+  }
+
+  // Sysadmin sin gimnasio seleccionado (y sin viewAllGyms)
+  if (isSysadmin() && !currentGym && !viewAllGyms) {
     return (
       <div className="space-y-6 animate-fadeIn">
         <div>
@@ -75,7 +191,7 @@ const Dashboard = () => {
             <Building2 className="text-yellow-500" size={32} />
             <div>
               <h3 className="font-semibold text-yellow-400">Seleccioná un gimnasio</h3>
-              <p className="text-gray-400 text-sm">Como Sysadmin, podés acceder a cualquier gimnasio</p>
+              <p className="text-gray-400 text-sm">Como Sysadmin, podés acceder a cualquier gimnasio o ver todos</p>
             </div>
           </div>
         </Card>
@@ -196,7 +312,7 @@ const Dashboard = () => {
       </div>
 
       {/* Stats */}
-      {(isAdmin() || isProfesor()) && (
+      {(isAdmin() || isProfesor() || isSysadmin()) && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard icon={Users} label="Miembros" value={stats.members} color="blue" />
           <StatCard icon={Calendar} label="Clases" value={stats.classes} color="green" />
@@ -270,6 +386,7 @@ const StatCard = ({ icon: Icon, label, value, color }) => {
     green: 'bg-green-500/20 text-green-500',
     orange: 'bg-orange-500/20 text-orange-500',
     purple: 'bg-purple-500/20 text-purple-500',
+    yellow: 'bg-yellow-500/20 text-yellow-500',
   };
 
   return (

@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, ClipboardList, MoreVertical, Edit, Trash2, Users, Lock, Globe, Dumbbell } from 'lucide-react';
-import { Button, Card, Modal, Input, Select, Textarea, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Dropdown, DropdownItem, Avatar } from '../components/Common';
+import { Button, Card, Modal, Input, Select, Textarea, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Dropdown, DropdownItem, Avatar , GymRequired } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
 import { db } from '../firebase';
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 
-const Routines = () => {
+const RoutinesContent = () => {
   const { userData, canCreateRoutines, isOnlyAlumno } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
@@ -624,4 +624,5 @@ const ViewRoutineModal = ({ isOpen, onClose, routine, exercises, getClassName, g
   );
 };
 
+const Routines = () => (<GymRequired><RoutinesContent /></GymRequired>);
 export default Routines;

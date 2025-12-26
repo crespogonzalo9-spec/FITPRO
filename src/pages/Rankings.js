@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Trophy, Crown, Medal, Award, MoreVertical, Edit, Trash2, TrendingUp, TrendingDown } from 'lucide-react';
-import { Button, Card, Modal, Input, Select, Textarea, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Avatar, Dropdown, DropdownItem } from '../components/Common';
+import { Button, Card, Modal, Input, Select, Textarea, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Avatar, Dropdown, DropdownItem , GymRequired } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
@@ -9,7 +9,7 @@ import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc
 import { RANKING_TYPES } from '../utils/constants';
 import { formatDate } from '../utils/helpers';
 
-const Rankings = () => {
+const RankingsContent = () => {
   const { userData, canCreateRankings } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
@@ -546,4 +546,5 @@ const ViewRankingModal = ({ isOpen, onClose, ranking, entries, loading, exercise
   );
 };
 
+const Rankings = () => (<GymRequired><RankingsContent /></GymRequired>);
 export default Rankings;

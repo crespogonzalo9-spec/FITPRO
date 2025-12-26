@@ -7,11 +7,15 @@ const GymContext = createContext();
 
 export const useGym = () => useContext(GymContext);
 
+// Constante para "todos los gimnasios"
+export const ALL_GYMS_ID = '__ALL_GYMS__';
+
 export const GymProvider = ({ children }) => {
   const { userData, isSysadmin } = useAuth();
   const [currentGym, setCurrentGymState] = useState(null);
   const [availableGyms, setAvailableGyms] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [viewAllGyms, setViewAllGyms] = useState(false);
 
   useEffect(() => {
     if (!userData) {
@@ -25,16 +29,27 @@ export const GymProvider = ({ children }) => {
     if (isSysadmin && isSysadmin()) {
       const unsubscribe = onSnapshot(collection(db, 'gyms'), (snapshot) => {
         const gymList = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+        gymList.sort((a, b) => a.name?.localeCompare(b.name));
         setAvailableGyms(gymList);
         
         // Recuperar gimnasio guardado en localStorage
         const savedGymId = localStorage.getItem('fitpro-selected-gym');
-        const savedGym = gymList.find(g => g.id === savedGymId);
         
-        if (savedGym) {
-          setCurrentGymState(savedGym);
+        if (savedGymId === ALL_GYMS_ID) {
+          setViewAllGyms(true);
+          setCurrentGymState(null);
+        } else {
+          const savedGym = gymList.find(g => g.id === savedGymId);
+          if (savedGym) {
+            setCurrentGymState(savedGym);
+            setViewAllGyms(false);
+          } else if (gymList.length > 0) {
+            // Si no hay guardado, seleccionar el primero
+            setCurrentGymState(gymList[0]);
+            setViewAllGyms(false);
+            localStorage.setItem('fitpro-selected-gym', gymList[0].id);
+          }
         }
-        // NO seleccionar automáticamente - dejar que el sysadmin elija
         setLoading(false);
       });
       return () => unsubscribe();
@@ -61,10 +76,17 @@ export const GymProvider = ({ children }) => {
 
   // Función para seleccionar gimnasio (solo sysadmin)
   const selectGym = (gymId) => {
-    const gym = availableGyms.find(g => g.id === gymId);
-    if (gym) {
-      setCurrentGymState(gym);
-      localStorage.setItem('fitpro-selected-gym', gymId);
+    if (gymId === ALL_GYMS_ID) {
+      setCurrentGymState(null);
+      setViewAllGyms(true);
+      localStorage.setItem('fitpro-selected-gym', ALL_GYMS_ID);
+    } else {
+      const gym = availableGyms.find(g => g.id === gymId);
+      if (gym) {
+        setCurrentGymState(gym);
+        setViewAllGyms(false);
+        localStorage.setItem('fitpro-selected-gym', gymId);
+      }
     }
   };
 
@@ -72,7 +94,12 @@ export const GymProvider = ({ children }) => {
     currentGym,
     availableGyms,
     selectGym,
-    loading
+    loading,
+    viewAllGyms,
+    // Helper para saber si debe filtrar por gym
+    shouldFilterByGym: !viewAllGyms && currentGym?.id,
+    // ID del gym actual o null si es "todos"
+    currentGymId: viewAllGyms ? null : currentGym?.id
   };
 
   return (

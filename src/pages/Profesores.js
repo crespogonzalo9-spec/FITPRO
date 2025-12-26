@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, UserCheck, MoreVertical, Edit, Trash2, Mail, Phone, Shield } from 'lucide-react';
-import { Button, Card, Modal, Input, Select, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Avatar, Dropdown, DropdownItem } from '../components/Common';
+import { Button, Card, Modal, Input, Select, SearchInput, EmptyState, LoadingState, ConfirmDialog, Badge, Avatar, Dropdown, DropdownItem , GymRequired } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
@@ -8,7 +8,7 @@ import { db } from '../firebase';
 import { collection, query, where, onSnapshot, updateDoc, doc, serverTimestamp, getDocs } from 'firebase/firestore';
 import { formatDate } from '../utils/helpers';
 
-const Profesores = () => {
+const ProfesoresContent = () => {
   const { userData, canManageProfesores } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
@@ -158,4 +158,5 @@ const Profesores = () => {
   );
 };
 
+const Profesores = () => (<GymRequired><ProfesoresContent /></GymRequired>);
 export default Profesores;

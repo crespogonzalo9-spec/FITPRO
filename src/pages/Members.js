@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Users, MoreVertical, Phone, Shield, ShieldX, ShieldCheck } from 'lucide-react';
-import { Button, Card, Modal, Select, SearchInput, EmptyState, LoadingState, Badge, Avatar, Dropdown, DropdownItem, ConfirmDialog } from '../components/Common';
+import { Button, Card, Modal, Select, SearchInput, EmptyState, LoadingState, Badge, Avatar, Dropdown, DropdownItem, ConfirmDialog , GymRequired } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
@@ -8,7 +8,7 @@ import { db } from '../firebase';
 import { collection, query, where, onSnapshot, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { getRoleName, formatDate } from '../utils/helpers';
 
-const Members = () => {
+const MembersContent = () => {
   const { userData, isAdmin, canAssignRole, canRemoveRole, canBlockUsers } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
@@ -346,4 +346,5 @@ const RolesModal = ({ isOpen, onClose, onSave, member, canAssignRole, canRemoveR
   );
 };
 
+const Members = () => (<GymRequired><MembersContent /></GymRequired>);
 export default Members;
