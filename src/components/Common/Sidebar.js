@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, Users, Calendar, Dumbbell, ClipboardList,
   Settings, LogOut, Building2, UserCheck, Flame, Trophy,
-  TrendingUp, CheckCircle, CheckSquare, User, Menu, X, ChevronDown,
+  TrendingUp, CheckCircle, CheckSquare, User, X, ChevronDown,
   CalendarDays, Megaphone, Link
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -21,7 +21,7 @@ const iconMap = {
 
 const Sidebar = ({ isOpen, setIsOpen }) => {
   const { userData, logout, isSysadmin } = useAuth();
-  const { currentGym, gyms, setCurrentGym } = useGym();
+  const { currentGym, availableGyms, selectGym } = useGym();
   const { gymLogo } = useTheme();
   const navigate = useNavigate();
   const [showGymSelector, setShowGymSelector] = useState(false);
@@ -31,7 +31,25 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
     navigate('/login');
   };
 
-  const routes = NAV_ROUTES[userData?.role] || NAV_ROUTES.alumno;
+  // Determinar rutas basado en roles múltiples
+  const getRoutes = () => {
+    if (!userData?.roles) return NAV_ROUTES.alumno;
+    if (userData.roles.includes('sysadmin')) return NAV_ROUTES.sysadmin;
+    if (userData.roles.includes('admin')) return NAV_ROUTES.admin;
+    if (userData.roles.includes('profesor')) return NAV_ROUTES.profesor;
+    return NAV_ROUTES.alumno;
+  };
+
+  const routes = getRoutes();
+
+  // Obtener el rol más alto para mostrar
+  const getHighestRole = () => {
+    if (!userData?.roles) return 'alumno';
+    if (userData.roles.includes('sysadmin')) return 'sysadmin';
+    if (userData.roles.includes('admin')) return 'admin';
+    if (userData.roles.includes('profesor')) return 'profesor';
+    return 'alumno';
+  };
 
   return (
     <>
@@ -56,7 +74,7 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
                 )}
                 <div>
                   <h1 className="font-bold text-lg">FitPro</h1>
-                  <Badge className="badge-primary text-xs">{getRoleName(userData?.role)}</Badge>
+                  <Badge className="badge-primary text-xs">{getRoleName(getHighestRole())}</Badge>
                 </div>
               </div>
               <button onClick={() => setIsOpen(false)} className="lg:hidden p-1 hover:bg-gray-800 rounded">
@@ -64,8 +82,8 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
               </button>
             </div>
 
-            {/* Selector de gimnasio */}
-            {isSysadmin() && gyms.length > 0 && (
+            {/* Selector de gimnasio para sysadmin */}
+            {isSysadmin && isSysadmin() && availableGyms && availableGyms.length > 0 && (
               <div className="mt-4 relative">
                 <button
                   onClick={() => setShowGymSelector(!showGymSelector)}
@@ -76,10 +94,10 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
                 </button>
                 {showGymSelector && (
                   <div className="absolute top-full left-0 right-0 mt-1 bg-gray-800 rounded-xl shadow-lg border border-gray-700 max-h-48 overflow-y-auto z-50">
-                    {gyms.map(gym => (
+                    {availableGyms.map(gym => (
                       <button
                         key={gym.id}
-                        onClick={() => { setCurrentGym(gym); setShowGymSelector(false); }}
+                        onClick={() => { selectGym(gym.id); setShowGymSelector(false); }}
                         className={`w-full text-left px-3 py-2 hover:bg-gray-700 text-sm ${currentGym?.id === gym.id ? 'text-primary' : ''}`}
                         style={currentGym?.id === gym.id ? { color: 'rgba(var(--color-primary), 1)' } : {}}
                       >
@@ -92,7 +110,7 @@ const Sidebar = ({ isOpen, setIsOpen }) => {
             )}
 
             {/* Mostrar gimnasio actual para otros roles */}
-            {!isSysadmin() && currentGym && (
+            {(!isSysadmin || !isSysadmin()) && currentGym && (
               <div className="mt-3 px-3 py-2 bg-gray-800/50 rounded-xl">
                 <p className="text-xs text-gray-400">Gimnasio</p>
                 <p className="text-sm font-medium truncate">{currentGym.name}</p>
