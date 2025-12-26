@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { User, Mail, Lock, Phone, ArrowRight, Dumbbell, CheckCircle, Building2 } from 'lucide-react';
+import { User, Mail, Lock, Phone, ArrowRight, Dumbbell, CheckCircle, Building2, ChevronDown } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { db } from '../../firebase';
-import { collection, query, where, getDocs, updateDoc, doc, serverTimestamp, onSnapshot } from 'firebase/firestore';
+import { collection, getDocs, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
 
 const Register = ({ onToggle }) => {
   const { register, registerWithInvite } = useAuth();
@@ -20,14 +20,18 @@ const Register = ({ onToggle }) => {
 
   // Cargar gimnasios disponibles
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'gyms'), (snap) => {
-      setGyms(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    const loadGyms = async () => {
+      try {
+        const snap = await getDocs(collection(db, 'gyms'));
+        const gymList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        console.log('[Register] Loaded gyms:', gymList);
+        setGyms(gymList);
+      } catch (err) {
+        console.error('[Register] Error loading gyms:', err);
+      }
       setLoadingGyms(false);
-    }, (err) => {
-      console.error('Error loading gyms:', err);
-      setLoadingGyms(false);
-    });
-    return () => unsubscribe();
+    };
+    loadGyms();
   }, []);
 
   // Verificar si hay código de invitación en la URL
@@ -37,6 +41,7 @@ const Register = ({ onToggle }) => {
       const code = params.get('invite');
       
       if (!code) {
+        console.log('[Register] No invite code in URL');
         setCheckingInvite(false);
         return;
       }
@@ -44,40 +49,47 @@ const Register = ({ onToggle }) => {
       console.log('[Register] Checking invite code:', code);
 
       try {
-        // Buscar todas las invitaciones y filtrar manualmente
-        // (evita problemas de índices compuestos en Firebase)
+        // Buscar todas las invitaciones
         const invitesSnap = await getDocs(collection(db, 'invites'));
+        console.log('[Register] Total invites found:', invitesSnap.size);
         
         let foundInvite = null;
-        invitesSnap.forEach((doc) => {
-          const data = doc.data();
+        invitesSnap.forEach((docSnap) => {
+          const data = docSnap.data();
+          console.log('[Register] Checking invite:', data.code, data.status, data.gymId, data.gymName);
+          
           if (data.code === code && data.status === 'pending') {
-            foundInvite = { id: doc.id, ...data };
+            foundInvite = { id: docSnap.id, ...data };
           }
         });
 
         if (foundInvite) {
-          console.log('[Register] Found invite:', foundInvite);
+          console.log('[Register] Found valid invite:', foundInvite);
           
-          // Verificar que no esté expirada
-          const expiresAt = foundInvite.expiresAt?.toDate?.() || new Date(foundInvite.expiresAt);
-          if (expiresAt > new Date()) {
-            setInviteData(foundInvite);
-            setForm(prev => ({ 
-              ...prev, 
-              email: foundInvite.email || '',
-              gymId: foundInvite.gymId || ''
-            }));
-          } else {
-            setError('Esta invitación ha expirado');
+          // Verificar expiración (si tiene fecha de expiración)
+          if (foundInvite.expiresAt) {
+            const expiresAt = foundInvite.expiresAt?.toDate?.() || new Date(foundInvite.expiresAt);
+            if (expiresAt < new Date()) {
+              setError('Esta invitación ha expirado');
+              setCheckingInvite(false);
+              return;
+            }
           }
+          // Si no tiene expiresAt, es permanente - válida
+          
+          setInviteData(foundInvite);
+          setForm(prev => ({ 
+            ...prev, 
+            email: foundInvite.email || '',
+            gymId: foundInvite.gymId || ''
+          }));
         } else {
+          console.log('[Register] No valid invite found for code:', code);
           setError('Código de invitación inválido o ya fue usado');
         }
       } catch (err) {
         console.error('[Register] Error checking invite:', err);
-        // No mostrar error, simplemente permitir registro normal
-        console.log('[Register] Proceeding without invite');
+        setError('Error al verificar invitación. Podés registrarte sin invitación.');
       }
       
       setCheckingInvite(false);
@@ -89,6 +101,11 @@ const Register = ({ onToggle }) => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+
+    if (!form.name.trim()) {
+      setError('El nombre es requerido');
+      return;
+    }
 
     if (form.password !== form.confirmPassword) {
       setError('Las contraseñas no coinciden');
@@ -104,7 +121,9 @@ const Register = ({ onToggle }) => {
 
     let result;
     
-    if (inviteData) {
+    if (inviteData && inviteData.gymId) {
+      console.log('[Register] Registering with invite:', inviteData);
+      
       // Registro con invitación - usa el gimnasio de la invitación
       result = await registerWithInvite(
         form.email,
@@ -126,10 +145,12 @@ const Register = ({ onToggle }) => {
           // Limpiar URL
           window.history.replaceState({}, document.title, window.location.pathname);
         } catch (err) {
-          console.error('Error updating invite:', err);
+          console.error('[Register] Error updating invite:', err);
         }
       }
     } else {
+      console.log('[Register] Registering without invite, gymId:', form.gymId);
+      
       // Registro libre - puede elegir gimnasio o sin gimnasio
       result = await register(form.email, form.password, form.name, form.phone, form.gymId || null);
     }
@@ -176,7 +197,7 @@ const Register = ({ onToggle }) => {
                 <div>
                   <p className="text-green-400 font-medium">Invitación válida</p>
                   <p className="text-sm text-gray-300 mt-1">
-                    Te unirás a <strong>{inviteData.gymName}</strong>
+                    Te unirás a <strong>{inviteData.gymName || 'el gimnasio'}</strong>
                   </p>
                   {inviteData.roles && inviteData.roles.filter(r => r !== 'alumno').length > 0 && (
                     <p className="text-xs text-gray-400 mt-1">
@@ -246,34 +267,44 @@ const Register = ({ onToggle }) => {
               </div>
             </div>
 
-            {/* Gimnasio - selector o bloqueado si hay invitación */}
+            {/* Gimnasio - bloqueado si hay invitación, selector si no */}
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">Gimnasio</label>
               <div className="relative">
-                <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 z-10" size={20} />
                 {inviteData ? (
                   // Invitación: gimnasio bloqueado
-                  <div className="w-full pl-10 pr-4 py-3 bg-slate-900/50 border border-slate-600 rounded-xl text-white opacity-60">
-                    {inviteData.gymName}
+                  <div className="w-full pl-10 pr-4 py-3 bg-green-500/10 border border-green-500/30 rounded-xl text-green-400 font-medium">
+                    🔒 {inviteData.gymName || 'Gimnasio asignado'}
                   </div>
                 ) : (
                   // Sin invitación: selector de gimnasio
-                  <select
-                    value={form.gymId}
-                    onChange={(e) => setForm({ ...form, gymId: e.target.value })}
-                    className="w-full pl-10 pr-4 py-3 bg-slate-900/50 border border-slate-600 rounded-xl text-white focus:outline-none focus:border-primary appearance-none cursor-pointer"
-                    disabled={loadingGyms}
-                  >
-                    <option value="">Sin gimnasio (registrarme solo)</option>
-                    {gyms.map(gym => (
-                      <option key={gym.id} value={gym.id}>{gym.name}</option>
-                    ))}
-                  </select>
+                  <>
+                    <select
+                      value={form.gymId}
+                      onChange={(e) => setForm({ ...form, gymId: e.target.value })}
+                      className="w-full pl-10 pr-10 py-3 bg-slate-900/50 border border-slate-600 rounded-xl text-white focus:outline-none focus:border-primary appearance-none cursor-pointer"
+                      disabled={loadingGyms}
+                    >
+                      <option value="">Sin gimnasio (registrarme solo)</option>
+                      {gyms.map(gym => (
+                        <option key={gym.id} value={gym.id}>{gym.name}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={20} />
+                  </>
                 )}
               </div>
               {!inviteData && (
                 <p className="text-xs text-gray-500 mt-1">
-                  Podés elegir un gimnasio o registrarte sin uno. También podés unirte después con una invitación.
+                  {loadingGyms ? 'Cargando gimnasios...' : 
+                   gyms.length === 0 ? 'No hay gimnasios disponibles' :
+                   `${gyms.length} gimnasio(s) disponible(s). También podés unirte después con una invitación.`}
+                </p>
+              )}
+              {inviteData && (
+                <p className="text-xs text-green-500/70 mt-1">
+                  El gimnasio está definido por la invitación
                 </p>
               )}
             </div>

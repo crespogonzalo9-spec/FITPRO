@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Mail, Link2, Copy, Check, Trash2, Clock, UserPlus, Send } from 'lucide-react';
+import { Plus, Mail, Copy, Check, Trash2, Clock, UserPlus, Send, Infinity } from 'lucide-react';
 import { Button, Card, Modal, Input, Select, EmptyState, LoadingState, Badge, ConfirmDialog } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
@@ -9,7 +9,7 @@ import { collection, query, where, onSnapshot, addDoc, deleteDoc, doc, serverTim
 import { formatDate } from '../utils/helpers';
 
 const Invites = () => {
-  const { userData, canManageInvites, isAdmin } = useAuth();
+  const { userData, canManageInvites } = useAuth();
   const { currentGym } = useGym();
   const { success, error: showError } = useToast();
   
@@ -47,26 +47,39 @@ const Invites = () => {
   const handleCreate = async (data) => {
     try {
       const code = generateCode();
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + (data.expiresInDays || 7));
+      
+      // Si expiresInDays es 0 o null, es permanente (sin expiración)
+      let expiresAt = null;
+      if (data.expiresInDays && data.expiresInDays > 0) {
+        expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + data.expiresInDays);
+      }
 
-      await addDoc(collection(db, 'invites'), {
+      const inviteData = {
         code,
         email: data.email || null,
         roles: data.roles || ['alumno'],
         gymId: currentGym.id,
         gymName: currentGym.name,
         status: 'pending',
+        permanent: !expiresAt, // Marcar si es permanente
         createdBy: userData.id,
         createdByName: userData.name,
-        createdAt: serverTimestamp(),
-        expiresAt
-      });
+        createdAt: serverTimestamp()
+      };
+
+      // Solo agregar expiresAt si no es permanente
+      if (expiresAt) {
+        inviteData.expiresAt = expiresAt;
+      }
+
+      console.log('[Invites] Creating invite:', inviteData);
+      await addDoc(collection(db, 'invites'), inviteData);
 
       success('Invitación creada');
       setShowModal(false);
     } catch (err) {
-      console.error(err);
+      console.error('[Invites] Error creating invite:', err);
       showError('Error al crear invitación');
     }
   };
@@ -87,16 +100,19 @@ const Invites = () => {
     const link = `${baseUrl}?invite=${invite.code}`;
     navigator.clipboard.writeText(link);
     setCopiedId(invite.id);
-    success('Link copiado');
+    success('Link copiado al portapapeles');
     setTimeout(() => setCopiedId(null), 2000);
   };
 
   const getStatusBadge = (invite) => {
     if (invite.status === 'used') {
-      return <Badge className="bg-green-500/20 text-green-400">Usada</Badge>;
+      return <Badge className="bg-green-500/20 text-green-400">✓ Usada</Badge>;
     }
-    if (invite.expiresAt?.toDate() < new Date()) {
+    if (invite.expiresAt && invite.expiresAt?.toDate?.() < new Date()) {
       return <Badge className="bg-red-500/20 text-red-400">Expirada</Badge>;
+    }
+    if (invite.permanent) {
+      return <Badge className="bg-blue-500/20 text-blue-400">∞ Permanente</Badge>;
     }
     return <Badge className="bg-yellow-500/20 text-yellow-400">Pendiente</Badge>;
   };
@@ -112,8 +128,13 @@ const Invites = () => {
     return roles.map(r => roleNames[r] || r).join(', ');
   };
 
+  const isExpired = (invite) => {
+    if (invite.permanent || !invite.expiresAt) return false;
+    return invite.expiresAt?.toDate?.() < new Date();
+  };
+
   if (loading) return <LoadingState />;
-  if (!currentGym) return <EmptyState icon={Mail} title="Sin gimnasio" />;
+  if (!currentGym) return <EmptyState icon={Mail} title="Sin gimnasio" description="Seleccioná un gimnasio primero" />;
 
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -132,12 +153,12 @@ const Invites = () => {
       {/* Info */}
       <Card className="bg-blue-500/10 border-blue-500/30">
         <div className="flex items-start gap-3">
-          <UserPlus className="text-blue-400 mt-1" size={20} />
+          <UserPlus className="text-blue-400 mt-1 flex-shrink-0" size={20} />
           <div>
             <p className="text-blue-400 font-medium">¿Cómo funcionan las invitaciones?</p>
             <p className="text-sm text-gray-400 mt-1">
               Al crear una invitación se genera un link único. Cuando alguien se registra usando ese link, 
-              automáticamente queda asociado a este gimnasio con los roles que hayas configurado.
+              automáticamente queda asociado a <strong>{currentGym.name}</strong> con los roles que configures.
             </p>
           </div>
         </div>
@@ -148,16 +169,16 @@ const Invites = () => {
           icon={Mail} 
           title="No hay invitaciones" 
           description="Creá una invitación para sumar miembros al gimnasio"
-          action={canEdit && <Button icon={Plus} onClick={() => setShowModal(true)}>Crear</Button>}
+          action={canEdit && <Button icon={Plus} onClick={() => setShowModal(true)}>Crear Invitación</Button>}
         />
       ) : (
         <div className="space-y-3">
           {invites.map(invite => (
-            <Card key={invite.id}>
+            <Card key={invite.id} className={invite.status === 'used' ? 'opacity-60' : ''}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
-                    <code className="px-3 py-1 bg-gray-800 rounded-lg text-primary font-mono">
+                    <code className="px-3 py-1 bg-gray-800 rounded-lg text-primary font-mono text-lg">
                       {invite.code}
                     </code>
                     {getStatusBadge(invite)}
@@ -166,22 +187,33 @@ const Invites = () => {
                   <div className="text-sm text-gray-400 space-y-1">
                     {invite.email && (
                       <p className="flex items-center gap-2">
-                        <Mail size={14} /> {invite.email}
+                        <Mail size={14} /> Para: {invite.email}
                       </p>
                     )}
                     <p>Roles: <strong className="text-gray-300">{getRolesText(invite.roles)}</strong></p>
                     <p className="flex items-center gap-2">
-                      <Clock size={14} /> 
-                      {invite.status === 'used' 
-                        ? `Usado por ${invite.usedByName}` 
-                        : `Expira: ${formatDate(invite.expiresAt)}`
-                      }
+                      {invite.permanent ? (
+                        <>
+                          <Infinity size={14} className="text-blue-400" />
+                          <span className="text-blue-400">Sin expiración (permanente)</span>
+                        </>
+                      ) : (
+                        <>
+                          <Clock size={14} /> 
+                          {invite.status === 'used' 
+                            ? `Usado por ${invite.usedByName}` 
+                            : isExpired(invite)
+                              ? 'Expirada'
+                              : `Expira: ${formatDate(invite.expiresAt)}`
+                          }
+                        </>
+                      )}
                     </p>
                   </div>
                 </div>
 
                 <div className="flex gap-2">
-                  {invite.status === 'pending' && (
+                  {invite.status === 'pending' && !isExpired(invite) && (
                     <Button
                       variant="secondary"
                       size="sm"
@@ -207,15 +239,27 @@ const Invites = () => {
         </div>
       )}
 
-      <InviteModal isOpen={showModal} onClose={() => setShowModal(false)} onCreate={handleCreate} isAdmin={isAdmin()} />
-      <ConfirmDialog isOpen={showDelete} onClose={() => setShowDelete(false)} onConfirm={handleDelete} title="Eliminar Invitación" message="¿Eliminar esta invitación?" confirmText="Eliminar" />
+      <InviteModal 
+        isOpen={showModal} 
+        onClose={() => setShowModal(false)} 
+        onCreate={handleCreate} 
+        gymName={currentGym?.name}
+      />
+      <ConfirmDialog 
+        isOpen={showDelete} 
+        onClose={() => setShowDelete(false)} 
+        onConfirm={handleDelete} 
+        title="Eliminar Invitación" 
+        message="¿Eliminar esta invitación?" 
+        confirmText="Eliminar" 
+      />
     </div>
   );
 };
 
-const InviteModal = ({ isOpen, onClose, onCreate, isAdmin }) => {
+const InviteModal = ({ isOpen, onClose, onCreate, gymName }) => {
   const { isSysadmin } = useAuth();
-  const [form, setForm] = useState({ email: '', roles: ['alumno'], expiresInDays: 7 });
+  const [form, setForm] = useState({ email: '', roles: ['alumno'], expiresInDays: 0 });
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
@@ -223,7 +267,7 @@ const InviteModal = ({ isOpen, onClose, onCreate, isAdmin }) => {
     setLoading(true);
     await onCreate(form);
     setLoading(false);
-    setForm({ email: '', roles: ['alumno'], expiresInDays: 7 });
+    setForm({ email: '', roles: ['alumno'], expiresInDays: 0 });
   };
 
   const toggleRole = (role) => {
@@ -261,6 +305,12 @@ const InviteModal = ({ isOpen, onClose, onCreate, isAdmin }) => {
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Nueva Invitación">
       <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Info del gimnasio */}
+        <div className="p-3 bg-primary/10 border border-primary/30 rounded-xl">
+          <p className="text-sm text-gray-400">Gimnasio</p>
+          <p className="font-medium text-primary">{gymName}</p>
+        </div>
+
         <Input 
           label="Email (opcional)" 
           type="email"
@@ -295,17 +345,27 @@ const InviteModal = ({ isOpen, onClose, onCreate, isAdmin }) => {
           </div>
         </div>
 
-        <Select 
-          label="Válida por" 
-          value={form.expiresInDays} 
-          onChange={e => setForm({ ...form, expiresInDays: parseInt(e.target.value) })}
-          options={[
-            { value: 1, label: '1 día' },
-            { value: 7, label: '7 días' },
-            { value: 30, label: '30 días' },
-            { value: 90, label: '90 días' },
-          ]}
-        />
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">Validez</label>
+          <select
+            value={form.expiresInDays}
+            onChange={e => setForm({ ...form, expiresInDays: parseInt(e.target.value) })}
+            className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-white focus:outline-none focus:border-primary"
+          >
+            <option value={0}>♾️ Permanente (sin expiración)</option>
+            <option value={1}>1 día</option>
+            <option value={7}>7 días</option>
+            <option value={30}>30 días</option>
+            <option value={90}>90 días</option>
+            <option value={365}>1 año</option>
+          </select>
+          <p className="text-xs text-gray-500 mt-1">
+            {form.expiresInDays === 0 
+              ? 'La invitación no expirará nunca hasta que la elimines o sea usada'
+              : `La invitación expirará en ${form.expiresInDays} día(s)`
+            }
+          </p>
+        </div>
 
         <div className="flex gap-3 pt-4">
           <Button type="button" variant="secondary" onClick={onClose} className="flex-1">Cancelar</Button>
