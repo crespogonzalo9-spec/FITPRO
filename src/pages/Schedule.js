@@ -17,8 +17,19 @@ const ScheduleContent = () => {
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState(null);
 
+  // Reset estados cuando cambia el gimnasio
   useEffect(() => {
-    if (!currentGym?.id) { setLoading(false); return; }
+    setClasses([]);
+    setMyEnrollments([]);
+    setLoading(true);
+  }, [currentGym?.id]);
+
+  useEffect(() => {
+    if (!currentGym?.id) { 
+      setClasses([]);
+      setLoading(false); 
+      return; 
+    }
 
     const unsubClasses = onSnapshot(query(collection(db, 'classes'), where('gymId', '==', currentGym.id)), (snap) => {
       setClasses(snap.docs.map(d => ({ id: d.id, ...d.data() })));

@@ -25,6 +25,12 @@ const InvitesContent = () => {
   // Verificar si el usuario pertenece al gimnasio actual
   const userBelongsToGym = userData?.gymId === currentGym?.id || isSysadmin();
 
+  // Reset estados cuando cambia el gimnasio
+  useEffect(() => {
+    setInvites([]);
+    setLoading(true);
+  }, [currentGym?.id]);
+
   useEffect(() => {
     if (!currentGym?.id) { 
       setLoading(false); 

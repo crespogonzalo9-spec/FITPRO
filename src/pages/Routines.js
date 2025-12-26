@@ -28,6 +28,18 @@ const RoutinesContent = () => {
 
   const canEdit = canCreateRoutines();
 
+  // Reset estados cuando cambia el gimnasio
+  useEffect(() => {
+    setRoutines([]);
+    setClasses([]);
+    setMembers([]);
+    setExercises([]);
+    setMyEnrollments([]);
+    setLoading(true);
+    setSearch('');
+    setFilter('all');
+  }, [currentGym?.id]);
+
   useEffect(() => {
     if (!currentGym?.id) { setLoading(false); return; }
 

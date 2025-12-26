@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Trophy, Plus, TrendingUp, Calendar, Edit, Trash2, MoreVertical, CheckCircle, Clock, AlertCircle, Filter } from 'lucide-react';
-import { Button, Card, Modal, Input, Textarea, Select, SearchInput, EmptyState, LoadingState, Badge, ConfirmDialog, Dropdown, DropdownItem, Avatar , GymRequired } from '../components/Common';
+import { Button, Card, Modal, Input, Textarea, Select, SearchInput, EmptyState, LoadingState, Badge, ConfirmDialog, Dropdown, DropdownItem, Avatar, GymRequired } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
 import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
 import { db } from '../firebase';
-import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, orderBy } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { formatDate } from '../utils/helpers';
 
 const MEASURE_LABELS = {
@@ -28,7 +28,7 @@ const PRsContent = () => {
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterExercise, setFilterExercise] = useState('all');
-  const [viewMode, setViewMode] = useState('mine'); // 'mine' | 'all' | 'pending'
+  const [viewMode, setViewMode] = useState('mine');
   
   const [showModal, setShowModal] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
@@ -38,9 +38,23 @@ const PRsContent = () => {
   const canValidate = isProfesor() || isSysadmin();
   const canViewAll = isProfesor() || isSysadmin();
 
+  // Reset estados cuando cambia el gimnasio
+  useEffect(() => {
+    setPrs([]);
+    setExercises([]);
+    setMembers([]);
+    setLoading(true);
+    setSearch('');
+    setFilterStatus('all');
+    setFilterExercise('all');
+  }, [currentGym?.id]);
+
   // Cargar ejercicios
   useEffect(() => {
-    if (!currentGym?.id) return;
+    if (!currentGym?.id) {
+      setExercises([]);
+      return;
+    }
 
     const q = query(collection(db, 'exercises'), where('gymId', '==', currentGym.id));
     const unsubscribe = onSnapshot(q, (snap) => {
@@ -50,11 +64,14 @@ const PRsContent = () => {
     });
 
     return () => unsubscribe();
-  }, [currentGym]);
+  }, [currentGym?.id]);
 
   // Cargar miembros (para validadores)
   useEffect(() => {
-    if (!currentGym?.id || !canViewAll) return;
+    if (!currentGym?.id || !canViewAll) {
+      setMembers([]);
+      return;
+    }
 
     const q = query(collection(db, 'users'), where('gymId', '==', currentGym.id));
     const unsubscribe = onSnapshot(q, (snap) => {
@@ -62,12 +79,18 @@ const PRsContent = () => {
     });
 
     return () => unsubscribe();
-  }, [currentGym, canViewAll]);
+  }, [currentGym?.id, canViewAll]);
 
   // Cargar PRs
   useEffect(() => {
-    if (!currentGym?.id || !userData?.id) { setLoading(false); return; }
+    if (!currentGym?.id || !userData?.id) { 
+      setPrs([]);
+      setLoading(false); 
+      return; 
+    }
 
+    setLoading(true);
+    
     let q;
     if (viewMode === 'mine') {
       q = query(
@@ -103,7 +126,7 @@ const PRsContent = () => {
     });
 
     return () => unsubscribe();
-  }, [currentGym, userData, viewMode, canViewAll, canValidate]);
+  }, [currentGym?.id, userData?.id, viewMode, canViewAll, canValidate]);
 
   const handleSave = async (data) => {
     try {
@@ -125,7 +148,7 @@ const PRsContent = () => {
           gymId: currentGym.id,
           userId: userData.id,
           userName: userData.name,
-          status: 'pending', // pending, validated, rejected
+          status: 'pending',
           createdAt: serverTimestamp()
         });
         success('PR registrado! Pendiente de validación');
@@ -178,7 +201,6 @@ const PRsContent = () => {
 
   const formatValue = (pr) => {
     if (pr.measureType === 'time') {
-      // Formato tiempo: mm:ss o hh:mm:ss
       const totalSeconds = pr.value;
       if (totalSeconds >= 3600) {
         const hours = Math.floor(totalSeconds / 3600);
@@ -231,7 +253,6 @@ const PRsContent = () => {
   const pendingCount = prs.filter(pr => pr.status === 'pending').length;
 
   if (loading) return <LoadingState />;
-  if (!currentGym) return <EmptyState icon={Trophy} title="Sin gimnasio" description="Seleccioná un gimnasio" />;
 
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -240,44 +261,40 @@ const PRsContent = () => {
           <h1 className="text-2xl font-bold">Marcas Personales</h1>
           <p className="text-gray-400">
             {viewMode === 'mine' ? 'Mis PRs' : viewMode === 'pending' ? 'Pendientes de validación' : 'Todos los PRs'}
-            {pendingCount > 0 && canValidate && viewMode !== 'pending' && (
-              <span className="ml-2 text-yellow-400">({pendingCount} pendientes)</span>
-            )}
+            {' '}en {currentGym?.name}
           </p>
         </div>
         <div className="flex gap-2">
           {canViewAll && (
-            <Select
-              value={viewMode}
-              onChange={e => setViewMode(e.target.value)}
-              options={[
-                { value: 'mine', label: '👤 Mis PRs' },
-                { value: 'all', label: '👥 Todos' },
-                { value: 'pending', label: `⏳ Pendientes ${pendingCount > 0 ? `(${pendingCount})` : ''}` }
-              ]}
-              className="w-44"
-            />
+            <div className="flex bg-gray-800 rounded-xl p-1">
+              <button
+                onClick={() => setViewMode('mine')}
+                className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${viewMode === 'mine' ? 'bg-primary text-white' : 'text-gray-400 hover:text-white'}`}
+              >
+                👤 Mis PRs
+              </button>
+              {canValidate && (
+                <button
+                  onClick={() => setViewMode('pending')}
+                  className={`px-3 py-1.5 rounded-lg text-sm transition-colors flex items-center gap-1 ${viewMode === 'pending' ? 'bg-primary text-white' : 'text-gray-400 hover:text-white'}`}
+                >
+                  <Clock size={14} /> Pendientes
+                  {pendingCount > 0 && (
+                    <span className="bg-yellow-500 text-black text-xs px-1.5 rounded-full">{pendingCount}</span>
+                  )}
+                </button>
+              )}
+              <button
+                onClick={() => setViewMode('all')}
+                className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${viewMode === 'all' ? 'bg-primary text-white' : 'text-gray-400 hover:text-white'}`}
+              >
+                📋 Todos
+              </button>
+            </div>
           )}
-          <Button icon={Plus} onClick={openCreate}>
-            Registrar PR
-          </Button>
+          <Button icon={Plus} onClick={openCreate}>Registrar PR</Button>
         </div>
       </div>
-
-      {/* Info si no hay ejercicios */}
-      {exercises.length === 0 && (
-        <Card className="bg-yellow-500/10 border-yellow-500/30">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="text-yellow-400 mt-1 flex-shrink-0" size={20} />
-            <div>
-              <p className="text-yellow-400 font-medium">No hay ejercicios cargados</p>
-              <p className="text-sm text-gray-400 mt-1">
-                Primero necesitás agregar ejercicios en la sección de Ejercicios para poder registrar PRs.
-              </p>
-            </div>
-          </div>
-        </Card>
-      )}
 
       {/* Filtros */}
       <div className="flex flex-col sm:flex-row gap-4">
@@ -305,54 +322,51 @@ const PRsContent = () => {
             { value: 'pending', label: '⏳ Pendientes' },
             { value: 'rejected', label: '✗ Rechazados' }
           ]}
-          className="w-full sm:w-40"
+          className="w-full sm:w-48"
         />
       </div>
 
+      {/* Lista de PRs */}
       {filteredPRs.length === 0 ? (
         <EmptyState 
           icon={Trophy} 
-          title="No hay PRs" 
-          description={prs.length === 0 ? "Registrá tu primera marca personal!" : "No se encontraron PRs con esos filtros"}
-          action={exercises.length > 0 && prs.length === 0 && <Button icon={Plus} onClick={openCreate}>Registrar PR</Button>}
+          title={viewMode === 'pending' ? 'No hay PRs pendientes' : 'No hay marcas personales'}
+          description={viewMode === 'mine' ? 'Registrá tu primera marca personal' : 'No se encontraron PRs'}
+          action={viewMode === 'mine' && <Button icon={Plus} onClick={openCreate}>Registrar PR</Button>}
         />
       ) : (
         <div className="space-y-3">
           {filteredPRs.map(pr => (
-            <Card key={pr.id} className={pr.status === 'rejected' ? 'opacity-60' : ''}>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  {/* Avatar del usuario (solo si vemos todos) */}
+            <Card key={pr.id} className="hover:border-gray-600 transition-colors">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-4 flex-1 min-w-0">
+                  {/* Avatar del usuario (solo si no es "mis PRs") */}
                   {viewMode !== 'mine' && (
                     <Avatar name={pr.userName} size="md" />
                   )}
                   
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <h3 className="font-semibold text-lg">{pr.exerciseName}</h3>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-semibold">{pr.exerciseName}</h3>
                       {getStatusBadge(pr.status)}
                     </div>
-                    
-                    {viewMode !== 'mine' && (
-                      <p className="text-sm text-gray-400">{pr.userName}</p>
-                    )}
-                    
-                    <div className="flex items-center gap-4 text-sm text-gray-400 mt-1">
+                    <div className="flex items-center gap-3 text-sm text-gray-400 mt-1">
                       <span className="flex items-center gap-1">
                         <Calendar size={14} />
                         {formatDate(pr.date || pr.createdAt)}
                       </span>
-                      {pr.notes && (
-                        <span className="text-gray-500 truncate max-w-[200px]">
-                          📝 {pr.notes}
+                      {viewMode !== 'mine' && (
+                        <span className="flex items-center gap-1">
+                          <Trophy size={14} />
+                          {pr.userName}
                         </span>
                       )}
                     </div>
-                    
                     {pr.status === 'validated' && pr.validatedByName && (
-                      <p className="text-xs text-green-500/70 mt-1">
-                        Validado por {pr.validatedByName}
-                      </p>
+                      <p className="text-xs text-green-400 mt-1">Validado por {pr.validatedByName}</p>
+                    )}
+                    {pr.notes && (
+                      <p className="text-sm text-gray-500 mt-1 truncate">{pr.notes}</p>
                     )}
                   </div>
                 </div>
@@ -465,7 +479,6 @@ const PRModal = ({ isOpen, onClose, onSave, pr, exercises }) => {
     
     let finalValue = parseFloat(form.value);
     
-    // Si es tiempo, convertir minutos:segundos a segundos totales
     if (selectedExercise?.measureType === 'time') {
       finalValue = (parseInt(form.timeMinutes) || 0) * 60 + (parseInt(form.timeSeconds) || 0);
     }

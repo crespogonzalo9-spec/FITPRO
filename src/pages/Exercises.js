@@ -50,13 +50,25 @@ const ExercisesContent = () => {
 
   const canEdit = isProfesor() || isSysadmin();
 
+  // Reset estados cuando cambia el gimnasio
   useEffect(() => {
-    if (!currentGym?.id) { setLoading(false); return; }
+    setExercises([]);
+    setLoading(true);
+    setSearch('');
+    setFilterCategory('all');
+    setFilterMeasure('all');
+  }, [currentGym?.id]);
+
+  useEffect(() => {
+    if (!currentGym?.id) { 
+      setExercises([]);
+      setLoading(false); 
+      return; 
+    }
 
     const q = query(
       collection(db, 'exercises'), 
-      where('gymId', '==', currentGym.id),
-      orderBy('name', 'asc')
+      where('gymId', '==', currentGym.id)
     );
     
     const unsubscribe = onSnapshot(q, (snap) => {

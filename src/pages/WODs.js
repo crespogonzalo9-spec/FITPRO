@@ -28,8 +28,23 @@ const WODsContent = () => {
 
   const canEdit = canCreateRoutines();
 
+  // Reset estados cuando cambia el gimnasio
   useEffect(() => {
-    if (!currentGym?.id) { setLoading(false); return; }
+    setWods([]);
+    setClasses([]);
+    setMembers([]);
+    setMyEnrollments([]);
+    setLoading(true);
+    setSearch('');
+    setFilter('all');
+  }, [currentGym?.id]);
+
+  useEffect(() => {
+    if (!currentGym?.id) { 
+      setWods([]);
+      setLoading(false); 
+      return; 
+    }
 
     // Cargar WODs
     const wodsQuery = query(collection(db, 'wods'), where('gymId', '==', currentGym.id));

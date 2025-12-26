@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Users, MoreVertical, Edit, Shield, Building2, Crown, Trash2 } from 'lucide-react';
+import { Users, MoreVertical, Edit, Shield, Building2, Crown, Trash2, Globe } from 'lucide-react';
 import { Button, Card, Modal, Select, SearchInput, EmptyState, LoadingState, Badge, Avatar, Dropdown, DropdownItem, ConfirmDialog } from '../components/Common';
 import { useAuth } from '../contexts/AuthContext';
+import { useGym } from '../contexts/GymContext';
 import { useToast } from '../contexts/ToastContext';
 import { db } from '../firebase';
-import { collection, onSnapshot, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { formatDate } from '../utils/helpers';
 
 const UsersPage = () => {
   const { userData, isSysadmin, canAssignRole, canRemoveRole } = useAuth();
+  const { currentGym, viewAllGyms, availableGyms } = useGym();
   const { success, error: showError } = useToast();
   
   const [users, setUsers] = useState([]);
@@ -22,17 +24,34 @@ const UsersPage = () => {
   const [selected, setSelected] = useState(null);
 
   useEffect(() => {
-    const unsubUsers = onSnapshot(collection(db, 'users'), (snap) => {
-      setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      setLoading(false);
-    });
-
+    // Cargar gimnasios siempre
     const unsubGyms = onSnapshot(collection(db, 'gyms'), (snap) => {
       setGyms(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
+    // Cargar usuarios según contexto
+    let usersQuery;
+    
+    if (viewAllGyms) {
+      // Ver todos los usuarios (modo global)
+      usersQuery = collection(db, 'users');
+    } else if (currentGym?.id) {
+      // Ver solo usuarios del gimnasio seleccionado
+      usersQuery = query(collection(db, 'users'), where('gymId', '==', currentGym.id));
+    } else {
+      // Sin gimnasio seleccionado
+      setUsers([]);
+      setLoading(false);
+      return () => unsubGyms();
+    }
+
+    const unsubUsers = onSnapshot(usersQuery, (snap) => {
+      setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    });
+
     return () => { unsubUsers(); unsubGyms(); };
-  }, []);
+  }, [currentGym, viewAllGyms]);
 
   const getFilteredUsers = () => {
     let filtered = users;
@@ -125,14 +144,54 @@ const UsersPage = () => {
 
   if (loading) return <LoadingState />;
 
+  // Mostrar contexto actual
+  const getContextLabel = () => {
+    if (viewAllGyms) {
+      return (
+        <span className="flex items-center gap-2 text-blue-400">
+          <Globe size={16} />
+          Todos los gimnasios
+        </span>
+      );
+    }
+    if (currentGym) {
+      return (
+        <span className="flex items-center gap-2">
+          <Building2 size={16} />
+          {currentGym.name}
+        </span>
+      );
+    }
+    return null;
+  };
+
   return (
     <div className="space-y-6 animate-fadeIn">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold">Usuarios</h1>
-          <p className="text-gray-400">{filteredUsers.length} usuarios en el sistema</p>
+          <p className="text-gray-400">
+            {filteredUsers.length} usuarios {viewAllGyms ? 'en el sistema' : `en ${currentGym?.name || 'el gimnasio'}`}
+          </p>
         </div>
+        {getContextLabel()}
       </div>
+
+      {/* Info del contexto */}
+      {viewAllGyms && (
+        <Card className="bg-blue-500/10 border-blue-500/30">
+          <div className="flex items-start gap-3">
+            <Globe className="text-blue-400 mt-1 flex-shrink-0" size={20} />
+            <div>
+              <p className="text-blue-400 font-medium">Vista global</p>
+              <p className="text-sm text-gray-400">
+                Estás viendo usuarios de todos los gimnasios. Seleccioná un gimnasio específico 
+                en el menú lateral para ver solo sus usuarios.
+              </p>
+            </div>
+          </div>
+        </Card>
+      )}
 
       <div className="flex flex-col sm:flex-row gap-4">
         <SearchInput value={search} onChange={setSearch} placeholder="Buscar por nombre o email..." className="flex-1" />
@@ -151,7 +210,7 @@ const UsersPage = () => {
       </div>
 
       {filteredUsers.length === 0 ? (
-        <EmptyState icon={Users} title="No hay usuarios" />
+        <EmptyState icon={Users} title="No hay usuarios" description={currentGym ? `No hay usuarios en ${currentGym.name}` : 'No hay usuarios'} />
       ) : (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {filteredUsers.map(user => (
@@ -198,6 +257,8 @@ const UsersPage = () => {
         onSave={handleSave} 
         user={selected}
         gyms={gyms}
+        currentGym={currentGym}
+        viewAllGyms={viewAllGyms}
         currentUserId={userData?.id}
         canAssignRole={canAssignRole}
         canRemoveRole={canRemoveRole}
@@ -216,7 +277,7 @@ const UsersPage = () => {
   );
 };
 
-const UserModal = ({ isOpen, onClose, onSave, user, gyms, currentUserId, canAssignRole, canRemoveRole, isSysadmin }) => {
+const UserModal = ({ isOpen, onClose, onSave, user, gyms, currentGym, viewAllGyms, currentUserId, canAssignRole, canRemoveRole, isSysadmin }) => {
   const [form, setForm] = useState({ roles: ['alumno'], gymId: '', isActive: true });
   const [loading, setLoading] = useState(false);
 
@@ -227,8 +288,15 @@ const UserModal = ({ isOpen, onClose, onSave, user, gyms, currentUserId, canAssi
         gymId: user.gymId || '',
         isActive: user.isActive !== false
       });
+    } else {
+      // Si hay un gym seleccionado, usarlo por defecto
+      setForm({
+        roles: ['alumno'],
+        gymId: currentGym?.id || '',
+        isActive: true
+      });
     }
-  }, [user, isOpen]);
+  }, [user, isOpen, currentGym]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -325,6 +393,15 @@ const UserModal = ({ isOpen, onClose, onSave, user, gyms, currentUserId, canAssi
             ...gyms.map(g => ({ value: g.id, label: g.name }))
           ]}
         />
+
+        {/* Advertencia si cambia de gimnasio */}
+        {user && user.gymId !== form.gymId && form.gymId && (
+          <div className="p-3 bg-orange-500/20 border border-orange-500/30 rounded-xl">
+            <p className="text-orange-400 text-sm">
+              ⚠️ Al cambiar el gimnasio, el usuario perderá acceso a los datos del gimnasio anterior.
+            </p>
+          </div>
+        )}
 
         <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-xl">
           <div>

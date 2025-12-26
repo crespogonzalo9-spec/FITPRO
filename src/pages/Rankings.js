@@ -29,8 +29,24 @@ const RankingsContent = () => {
 
   const canEdit = canCreateRankings();
 
+  // Reset estados cuando cambia el gimnasio
   useEffect(() => {
-    if (!currentGym?.id) { setLoading(false); return; }
+    setRankings([]);
+    setExercises([]);
+    setWods([]);
+    setLoading(true);
+    setSearch('');
+    setRankingEntries([]);
+  }, [currentGym?.id]);
+
+  useEffect(() => {
+    if (!currentGym?.id) { 
+      setRankings([]);
+      setExercises([]);
+      setWods([]);
+      setLoading(false); 
+      return; 
+    }
 
     const rankingsQuery = query(collection(db, 'rankings'), where('gymId', '==', currentGym.id));
     const unsubRankings = onSnapshot(rankingsQuery, (snap) => {
